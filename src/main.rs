@@ -210,7 +210,8 @@ impl AppState {
             let mut next_dates = Vec::new();
             for calendar in &calendars {
                 for (uid, event) in &calendar.events {
-                    if event.base_event.is_full_day_event() {
+                    if event.base_event.is_full_day_event() || event.base_event.is_floating_event()
+                    {
                         continue;
                     }
 
