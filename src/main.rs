@@ -18,7 +18,7 @@ use handlebars::Handlebars;
 use ics_parser::components::VCalendar;
 use ics_parser::parser;
 use itertools::Itertools;
-use postgres_types::{FromSql, ToSql};
+
 use reqwest::Method;
 use serde_json::json;
 use tokio::{
@@ -28,8 +28,9 @@ use tokio::{
 use tracing::{error, info, instrument, Span};
 
 mod config;
+mod database;
 
-type PostgresPool = bb8::Pool<bb8_postgres::PostgresConnectionManager<NoTls>>;
+use database::{Attendee, Database, Event, EventInstance, Reminder};
 
 const DEFAULT_TEMPLATE: &str = r#"
 #### {{ summary }}
@@ -47,12 +48,6 @@ const DEFAULT_TEMPLATE: &str = r#"
 **Attendees:** {{ attendees }}
 {{/if}}
 "#;
-
-#[derive(Debug, Clone, ToSql, FromSql)]
-struct Attendee {
-    email: String,
-    common_name: Option<String>,
-}
 
 /// Parse a ICS encoded calendar.
 fn decode_calendar(cal_body: &str) -> Result<Vec<VCalendar>, Error> {
@@ -143,18 +138,6 @@ async fn get_events_for_calendar(
     Ok(calendars)
 }
 
-#[derive(Debug, Clone)]
-struct Reminder {
-    event_id: String,
-    summary: Option<String>,
-    description: Option<String>,
-    location: Option<String>,
-    template: Option<String>,
-    minutes_before: i64,
-    room_id: String,
-    attendees: Vec<Attendee>,
-}
-
 type ReminderInner = Arc<Mutex<VecDeque<(DateTime<Utc>, Reminder)>>>;
 
 #[derive(Debug, Clone, Default)]
@@ -198,7 +181,7 @@ impl Reminders {
 struct AppState {
     config: Config,
     http_client: reqwest::Client,
-    db_pool: PostgresPool,
+    database: Database,
     notify_db_update: Notify,
     reminders: Reminders,
     email_to_matrix_id: Arc<Mutex<BTreeMap<String, String>>>,
@@ -208,44 +191,36 @@ impl AppState {
     /// Fetches and stores updates for the stored calendars.
     #[instrument(skip(self))]
     async fn update_calendars(&self) -> Result<(), Error> {
-        let mut db_conn = self.db_pool.get().await?;
+        let db_calendars = self.database.get_calendars().await?;
 
-        let rows = db_conn
-            .query(
-                "SELECT calendar_id, url, user_name, password FROM calendars",
-                &[],
+        for db_calendar in db_calendars {
+            let calendars = get_events_for_calendar(
+                &self.http_client,
+                &db_calendar.url,
+                db_calendar.user_name.as_deref(),
+                db_calendar.password.as_deref(),
             )
             .await?;
 
-        for row in rows {
-            let calendar_id: i64 = row.get(0);
-            let url: &str = row.get(1);
-            let user_name: Option<&str> = row.get(2);
-            let password: &str = row.get(3);
-
-            let calendars =
-                get_events_for_calendar(&self.http_client, url, user_name, Some(password)).await?;
+            let calendar_id = db_calendar.calendar_id;
 
             let now = Utc::now();
 
-            let mut events = BTreeMap::new();
-            let mut event_next_dates = BTreeMap::new();
+            let mut events = Vec::new();
+            let mut next_dates = Vec::new();
             for calendar in &calendars {
                 for (uid, event) in &calendar.events {
                     if event.base_event.is_full_day_event() {
                         continue;
                     }
 
-                    events.insert(
-                        uid,
-                        (
-                            event.base_event.summary.as_deref(),
-                            event.base_event.description.as_deref(),
-                            event.base_event.location.as_deref(),
-                        ),
-                    );
+                    events.push(Event {
+                        event_id: uid,
+                        summary: event.base_event.summary.as_deref(),
+                        description: event.base_event.description.as_deref(),
+                        location: event.base_event.location.as_deref(),
+                    });
 
-                    let mut next_dates = Vec::new();
                     for (date, recur_event) in event
                         .recur_iter(&calendar)?
                         .skip_while(|(d, _)| *d < now)
@@ -279,62 +254,18 @@ impl AppState {
                             }
                         }
 
-                        next_dates.push((date, attendees));
+                        next_dates.push(EventInstance {
+                            event_id: uid,
+                            date,
+                            attendees,
+                        });
                     }
-
-                    event_next_dates.insert(uid, next_dates);
                 }
             }
 
-            let txn = db_conn.transaction().await?;
-
-            futures::future::try_join_all(events.iter().map(|(uid, values)| {
-                txn.execute_raw(
-                    r#"
-                INSERT INTO events (calendar_id, event_id, summary, description, location)
-                VALUES ($1, $2, $3, $4, $5)
-                ON CONFLICT (calendar_id, event_id)
-                DO UPDATE SET
-                    summary = EXCLUDED.summary,
-                    description = EXCLUDED.description,
-                    location = EXCLUDED.location
-            "#,
-                    vec![
-                        &calendar_id as &dyn ToSql,
-                        uid,
-                        &values.0,
-                        &values.1,
-                        &values.2,
-                    ],
-                )
-            }))
-            .await?;
-
-            txn.execute(
-                "DELETE FROM next_dates WHERE calendar_id = $1",
-                &[&calendar_id],
-            )
-            .await?;
-
-            futures::future::try_join_all(
-                event_next_dates
-                    .iter()
-                    .flat_map(|(uid, values)| {
-                        values.iter().map(move |(d, attendees)| (uid, d, attendees))
-                    })
-                    .map(|(uid, date, attendees)| {
-                        txn.execute_raw(
-                            r#"
-                            INSERT INTO next_dates (calendar_id, event_id, timestamp, attendees)
-                            VALUES ($1, $2, $3, $4)
-                        "#,
-                            vec![&calendar_id as &dyn ToSql, uid, date, attendees],
-                        )
-                    }),
-            )
-            .await?;
-
-            txn.commit().await?;
+            self.database
+                .insert_events(calendar_id, events, next_dates)
+                .await?;
         }
 
         self.update_reminders().await?;
@@ -345,53 +276,7 @@ impl AppState {
     /// Queries the DB and updates the reminders
     #[instrument(skip(self))]
     async fn update_reminders(&self) -> Result<(), Error> {
-        let db_conn = self.db_pool.get().await?;
-
-        let rows = db_conn
-            .query(
-                r#"
-                    SELECT event_id, summary, description, location, timestamp, room_id, minutes_before, template, attendees
-                    FROM reminders
-                    INNER JOIN events USING (calendar_id, event_id)
-                    INNER JOIN next_dates USING (calendar_id, event_id)
-                "#,
-                &[],
-            )
-            .await?;
-
-        let mut reminders = VecDeque::with_capacity(rows.len());
-
-        for row in rows {
-            let event_id: String = row.get(0);
-            let summary: Option<String> = row.get(1);
-            let description: Option<String> = row.get(2);
-            let location: Option<String> = row.get(3);
-            let timestamp: DateTime<Utc> = row.get(4);
-            let room_id: String = row.get(5);
-            let minutes_before: i64 = row.get(6);
-            let template: Option<String> = row.get(7);
-            let attendees: Vec<Attendee> = row.get(8);
-
-            let reminder_time = timestamp - Duration::minutes(minutes_before);
-            if reminder_time < Utc::now() {
-                continue;
-            }
-
-            let reminder = Reminder {
-                event_id,
-                summary,
-                description,
-                location,
-                template,
-                minutes_before,
-                room_id,
-                attendees,
-            };
-
-            reminders.push_back((reminder_time, reminder));
-        }
-
-        reminders.make_contiguous().sort_by_key(|(t, _)| *t);
+        let reminders = self.database.get_next_reminders().await?;
 
         info!(num = reminders.len(), "Updated reminders");
 
@@ -404,16 +289,7 @@ impl AppState {
     /// Update the email to matrix ID mapping cache.
     #[instrument(skip(self))]
     async fn update_mappings(&self) -> Result<(), Error> {
-        let db_conn = self.db_pool.get().await?;
-
-        let rows = db_conn
-            .query("SELECT email, matrix_id FROM email_to_matrix_id", &[])
-            .await?;
-
-        let mapping: BTreeMap<String, String> = rows
-            .into_iter()
-            .map(|row| (row.get(0), row.get(1)))
-            .collect();
+        let mapping = self.database.get_user_mappings().await?;
 
         *self.email_to_matrix_id.lock().expect("poisoned") = mapping;
 
@@ -587,7 +463,7 @@ impl AppState {
     }
 }
 
-#[tokio::main]
+#[actix_web::main]
 async fn main() -> Result<(), Error> {
     tracing_subscriber::fmt::init();
 
@@ -616,12 +492,13 @@ async fn main() -> Result<(), Error> {
         NoTls,
     )?;
     let db_pool = bb8::Pool::builder().max_size(15).build(manager).await?;
+    let database = Database::from_pool(db_pool);
 
     let notify_db_update = Notify::new();
     let state = AppState {
         config,
         http_client,
-        db_pool,
+        database,
         notify_db_update,
         reminders: Default::default(),
         email_to_matrix_id: Default::default(),
