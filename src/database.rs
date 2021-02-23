@@ -1,6 +1,9 @@
 //! Module for talking to the database
 
-use std::collections::{BTreeMap, VecDeque};
+use std::{
+    borrow::Cow,
+    collections::{BTreeMap, VecDeque},
+};
 
 use anyhow::Error;
 use chrono::{DateTime, Duration, FixedOffset, Utc};
@@ -31,16 +34,16 @@ pub struct Calendar {
 /// Basic info for an event.
 #[derive(Debug, Clone)]
 pub struct Event<'a> {
-    pub event_id: &'a str,
-    pub summary: Option<&'a str>,
-    pub description: Option<&'a str>,
-    pub location: Option<&'a str>,
+    pub event_id: Cow<'a, str>,
+    pub summary: Option<Cow<'a, str>>,
+    pub description: Option<Cow<'a, str>>,
+    pub location: Option<Cow<'a, str>>,
 }
 
 /// A particular instance of an event, with date/time and attendees.
 #[derive(Debug, Clone)]
 pub struct EventInstance<'a> {
-    pub event_id: &'a str,
+    pub event_id: Cow<'a, str>,
     pub date: DateTime<FixedOffset>,
     pub attendees: Vec<Attendee>,
 }
@@ -215,6 +218,62 @@ impl Database {
         reminders.make_contiguous().sort_by_key(|(t, _)| *t);
 
         Ok(reminders)
+    }
+
+    /// Get all events in a calendar
+    pub async fn get_events_in_calendar(
+        &self,
+        calendar_id: i64,
+    ) -> Result<Vec<(Event<'static>, EventInstance<'static>)>, Error> {
+        let db_conn = self.db_pool.get().await?;
+
+        let rows = db_conn
+            .query(
+                r#"
+                    SELECT DISTINCT ON (event_id) event_id, summary, description, location, timestamp, attendees
+                    FROM events
+                    INNER JOIN next_dates USING (calendar_id, event_id)
+                    WHERE calendar_id = $1
+                    ORDER BY event_id, timestamp
+                "#,
+                &[&calendar_id],
+            )
+            .await?;
+
+        let mut events = Vec::with_capacity(rows.len());
+
+        for row in rows {
+            let event_id: String = row.get(0);
+            let summary: Option<String> = row.get(1);
+            let description: Option<String> = row.get(2);
+            let location: Option<String> = row.get(3);
+            let date: DateTime<FixedOffset> = row.get(4);
+            let attendees: Vec<Attendee> = row.get(5);
+
+            if date < Utc::now() {
+                // ignore events in the past
+                continue;
+            }
+
+            let event = Event {
+                event_id: event_id.clone().into(),
+                summary: summary.map(Cow::from),
+                description: description.map(Cow::from),
+                location: location.map(Cow::from),
+            };
+
+            let instance = EventInstance {
+                event_id: event_id.into(),
+                date,
+                attendees,
+            };
+
+            events.push((event, instance));
+        }
+
+        events.sort_by_key(|(_, i)| i.date);
+
+        Ok(events)
     }
 
     /// Get the stored mappings from email to matrix ID.

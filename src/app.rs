@@ -75,18 +75,19 @@ impl Reminders {
 }
 
 /// The high level app.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct App {
     pub config: Config,
     pub http_client: reqwest::Client,
     pub database: Database,
-    pub notify_db_update: Notify,
+    pub notify_db_update: Arc<Notify>,
     pub reminders: Reminders,
     pub email_to_matrix_id: Arc<Mutex<BTreeMap<String, String>>>,
 }
 
 impl App {
-    pub async fn run(&self) {
+    /// Start the background jobs, including sending reminders and updating calendars.
+    pub async fn run(self) {
         tokio::join!(
             self.update_calendar_loop(),
             self.reminder_loop(),

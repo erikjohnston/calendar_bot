@@ -6,7 +6,7 @@ use ics_parser::{components::VCalendar, parser};
 use reqwest::Method;
 use tracing::{error, info, instrument, Span};
 
-use std::{convert::TryInto, ops::Deref, str::FromStr};
+use std::{borrow::Cow, convert::TryInto, ops::Deref, str::FromStr};
 
 use crate::database::{Attendee, Event, EventInstance};
 
@@ -116,10 +116,10 @@ pub fn parse_calendars_to_events(
             }
 
             events.push(Event {
-                event_id: uid,
-                summary: event.base_event.summary.as_deref(),
-                description: event.base_event.description.as_deref(),
-                location: event.base_event.location.as_deref(),
+                event_id: uid.into(),
+                summary: event.base_event.summary.as_deref().map(Cow::from),
+                description: event.base_event.description.as_deref().map(Cow::from),
+                location: event.base_event.location.as_deref().map(Cow::from),
             });
 
             // Loop through all occurrences of the event in the next N days and
@@ -160,7 +160,7 @@ pub fn parse_calendars_to_events(
                 }
 
                 next_dates.push(EventInstance {
-                    event_id: uid,
+                    event_id: uid.into(),
                     date,
                     attendees,
                 });

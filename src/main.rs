@@ -13,15 +13,16 @@ use clap::{crate_authors, crate_description, crate_name, crate_version, value_t_
 
 use config::Config;
 
-use tokio::sync::Notify;
-
 mod app;
 mod calendar;
 mod config;
 mod database;
+mod site;
 
 use app::App;
 use database::Database;
+use tokio::task::spawn_local;
+use tracing_subscriber::fmt::format::FmtSpan;
 
 /// Default markdown template used for generating reminder events.
 const DEFAULT_TEMPLATE: &str = r#"
@@ -44,7 +45,9 @@ const DEFAULT_TEMPLATE: &str = r#"
 /// Entry point.
 #[actix_web::main]
 async fn main() -> Result<(), Error> {
-    tracing_subscriber::fmt::init();
+    tracing_subscriber::fmt::fmt()
+        .with_span_events(FmtSpan::CLOSE)
+        .init();
 
     let matches = clap::app_from_crate!()
         .arg(
@@ -73,8 +76,8 @@ async fn main() -> Result<(), Error> {
     let db_pool = bb8::Pool::builder().max_size(15).build(manager).await?;
     let database = Database::from_pool(db_pool);
 
-    let notify_db_update = Notify::new();
-    let state = App {
+    let notify_db_update = Default::default();
+    let app = App {
         config,
         http_client,
         database,
@@ -83,7 +86,9 @@ async fn main() -> Result<(), Error> {
         email_to_matrix_id: Default::default(),
     };
 
-    state.run().await;
+    spawn_local(app.clone().run());
+
+    site::run_server(app).await?;
 
     Ok(())
 }
