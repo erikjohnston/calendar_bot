@@ -1,3 +1,5 @@
+//! Module for talking to the database
+
 use std::collections::{BTreeMap, VecDeque};
 
 use anyhow::Error;
@@ -5,14 +7,19 @@ use chrono::{DateTime, Duration, FixedOffset, Utc};
 use postgres_types::{FromSql, ToSql};
 use tokio_postgres::NoTls;
 
+/// Async database pool for PostgreSQL.
 pub type PostgresPool = bb8::Pool<bb8_postgres::PostgresConnectionManager<NoTls>>;
 
+/// An attendee of the meeting.
+///
+/// Includes people who haven't responded, or are tentative/confirmed.
 #[derive(Debug, Clone, ToSql, FromSql)]
 pub struct Attendee {
     pub email: String,
     pub common_name: Option<String>,
 }
 
+/// The URL and credentials of a calendar.
 #[derive(Debug, Clone)]
 pub struct Calendar {
     pub calendar_id: i64,
@@ -21,6 +28,7 @@ pub struct Calendar {
     pub password: Option<String>,
 }
 
+/// Basic info for an event.
 #[derive(Debug, Clone)]
 pub struct Event<'a> {
     pub event_id: &'a str,
@@ -29,6 +37,7 @@ pub struct Event<'a> {
     pub location: Option<&'a str>,
 }
 
+/// A particular instance of an event, with date/time and attendees.
 #[derive(Debug, Clone)]
 pub struct EventInstance<'a> {
     pub event_id: &'a str,
@@ -36,6 +45,7 @@ pub struct EventInstance<'a> {
     pub attendees: Vec<Attendee>,
 }
 
+/// A reminder for a particular [`EventInstance`]
 #[derive(Debug, Clone)]
 pub struct Reminder {
     pub event_id: String,
@@ -48,16 +58,19 @@ pub struct Reminder {
     pub attendees: Vec<Attendee>,
 }
 
+/// Allows talking to the database.
 #[derive(Debug, Clone)]
 pub struct Database {
     db_pool: PostgresPool,
 }
 
 impl Database {
+    /// Create a new `Database` from a PostgreSQL connection pool.
     pub fn from_pool(db_pool: PostgresPool) -> Database {
         Database { db_pool }
     }
 
+    /// Fetch stored calendar info.
     pub async fn get_calendars(&self) -> Result<Vec<Calendar>, Error> {
         let db_conn = self.db_pool.get().await?;
 
@@ -86,6 +99,10 @@ impl Database {
         Ok(calendars)
     }
 
+    /// Insert events and the next instances of the event.
+    ///
+    /// Not all event instances are stored (since they might be infinite),
+    /// instead only the instances in the next, say, month are typically stored.
     pub async fn insert_events(
         &self,
         calendar_id: i64,
@@ -144,6 +161,7 @@ impl Database {
         Ok(())
     }
 
+    /// Get the reminders needed to be sent out.
     pub async fn get_next_reminders(&self) -> Result<VecDeque<(DateTime<Utc>, Reminder)>, Error> {
         let db_conn = self.db_pool.get().await?;
 
@@ -175,6 +193,8 @@ impl Database {
 
             let reminder_time = timestamp - Duration::minutes(minutes_before);
             if reminder_time < Utc::now() {
+                // XXX: There's technically a race here if we reload the
+                // reminders just as we're about to send out a reminder.
                 continue;
             }
 
@@ -197,6 +217,7 @@ impl Database {
         Ok(reminders)
     }
 
+    /// Get the stored mappings from email to matrix ID.
     pub async fn get_user_mappings(&self) -> Result<BTreeMap<String, String>, Error> {
         let db_conn = self.db_pool.get().await?;
 

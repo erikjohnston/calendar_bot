@@ -1,25 +1,28 @@
+//! # Calendar Bot
+//!
+//! Calendar Bot is an app that connects to online calendars (via CalDAV) and
+//! allows scheduling reminders for them, which are sent to Matrix rooms.
+//! Updates to events are correctly handled by the associated reminders.
+
 use std::{
     collections::{BTreeMap, VecDeque},
-    convert::TryInto,
     error::Error as StdError,
     fs,
     ops::Deref,
-    str::FromStr,
     sync::{Arc, Mutex},
 };
 
-use anyhow::{anyhow, bail, Context, Error};
+use anyhow::{bail, Context, Error};
 use bb8_postgres::tokio_postgres::NoTls;
+use calendar::{fetch_calendars, parse_calendars_to_events};
 use chrono::{DateTime, Duration, Utc};
 use clap::{crate_authors, crate_description, crate_name, crate_version, value_t_or_exit, Arg};
 use comrak::{markdown_to_html, ComrakOptions};
 use config::Config;
 use handlebars::Handlebars;
-use ics_parser::components::VCalendar;
-use ics_parser::parser;
+
 use itertools::Itertools;
 
-use reqwest::Method;
 use serde_json::json;
 use tokio::{
     sync::Notify,
@@ -27,11 +30,13 @@ use tokio::{
 };
 use tracing::{error, info, instrument, Span};
 
+mod calendar;
 mod config;
 mod database;
 
-use database::{Attendee, Database, Event, EventInstance, Reminder};
+use database::{Database, Reminder};
 
+/// Default markdown template used for generating reminder events.
 const DEFAULT_TEMPLATE: &str = r#"
 #### {{ summary }}
 {{#if (gt minutes_before 0) }}Starts in {{ minutes_before }} minutes{{/if}}
@@ -49,109 +54,24 @@ const DEFAULT_TEMPLATE: &str = r#"
 {{/if}}
 "#;
 
-/// Parse a ICS encoded calendar.
-fn decode_calendar(cal_body: &str) -> Result<Vec<VCalendar>, Error> {
-    let components =
-        parser::Component::from_str_to_stream(&cal_body).with_context(|| "decoding component")?;
-
-    components
-        .into_iter()
-        .map(|comp| comp.try_into().with_context(|| "decoding VCALENDAR"))
-        .collect()
-}
-
-/// Fetch a calendar from a CalDAV URL and parse the returned set of calendars.
-///
-/// Note that CalDAV returns a calendar per event, rather than one calendar with
-/// many events.
-#[instrument(skip(client, password), fields(status))]
-async fn get_events_for_calendar(
-    client: &reqwest::Client,
-    url: &str,
-    user_name: Option<&str>,
-    password: Option<&str>,
-) -> Result<Vec<VCalendar>, Error> {
-    let mut req = client
-        .request(Method::from_str("REPORT").expect("method"), url)
-        .header("Content-Type", "application/xml");
-
-    if let Some(user) = user_name {
-        req = req.basic_auth(user, password);
-    }
-
-    let resp = req
-        .body(format!(
-            r#"
-        <c:calendar-query xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">
-            <d:prop>
-                <d:getetag />
-                <c:calendar-data />
-            </d:prop>
-            <c:filter>
-                <c:comp-filter name="VCALENDAR">
-                    <c:comp-filter name="VEVENT" >
-                    <c:time-range start="{start}" />
-                    </c:comp-filter>
-                </c:comp-filter>
-            </c:filter>
-        </c:calendar-query>
-        "#,
-            start = Utc::now().format("%Y%m%dT%H%M%SZ")
-        ))
-        .send()
-        .await?;
-
-    let status = resp.status();
-
-    let body = resp.text().await?;
-
-    info!(status = status.as_u16(), "Got result from CalDAV");
-    Span::current().record("status", &status.as_u16());
-
-    if !status.is_success() {
-        bail!("Got {} result from CalDAV", status.as_u16());
-    }
-
-    let doc = roxmltree::Document::parse(&body)
-        .map_err(|e| anyhow!(e))
-        .with_context(|| "decoding xml")?;
-
-    let mut calendars = Vec::new();
-
-    for node in doc.descendants() {
-        if node.tag_name().name() != "calendar-data" {
-            continue;
-        }
-
-        let cal_body = if let Some(t) = node.text() {
-            t
-        } else {
-            continue;
-        };
-
-        match decode_calendar(cal_body) {
-            Ok(cals) => calendars.extend(cals),
-            Err(e) => error!(error = e.deref() as &dyn StdError, "Failed to parse event"),
-        }
-    }
-
-    Ok(calendars)
-}
-
+/// Inner type for [`Reminders`]
 type ReminderInner = Arc<Mutex<VecDeque<(DateTime<Utc>, Reminder)>>>;
 
+/// The set of reminders that need to be sent out.
 #[derive(Debug, Clone, Default)]
 struct Reminders {
     inner: ReminderInner,
 }
 
 impl Reminders {
+    /// Get how long until the next reminder needs to be sent.
     fn get_time_to_next(&self) -> Option<Duration> {
         let inner = self.inner.lock().expect("poisoned");
 
         inner.front().map(|(t, _)| *t - Utc::now())
     }
 
+    /// Pop all reminders that are ready to be sent now.
     fn pop_due_reminders(&self) -> Vec<Reminder> {
         let mut reminders = self.inner.lock().expect("poisoned");
 
@@ -170,13 +90,15 @@ impl Reminders {
         due_reminders
     }
 
-    fn update(&self, reminders: VecDeque<(DateTime<Utc>, Reminder)>) {
+    /// Replace the current set of reminders
+    fn replace(&self, reminders: VecDeque<(DateTime<Utc>, Reminder)>) {
         let mut inner = self.inner.lock().expect("poisoned");
 
         *inner = reminders;
     }
 }
 
+/// The high level app.
 #[derive(Debug)]
 struct AppState {
     config: Config,
@@ -194,7 +116,7 @@ impl AppState {
         let db_calendars = self.database.get_calendars().await?;
 
         for db_calendar in db_calendars {
-            let calendars = get_events_for_calendar(
+            let calendars = fetch_calendars(
                 &self.http_client,
                 &db_calendar.url,
                 db_calendar.user_name.as_deref(),
@@ -202,70 +124,9 @@ impl AppState {
             )
             .await?;
 
-            let calendar_id = db_calendar.calendar_id;
-
-            let now = Utc::now();
-
-            let mut events = Vec::new();
-            let mut next_dates = Vec::new();
-            for calendar in &calendars {
-                for (uid, event) in &calendar.events {
-                    if event.base_event.is_full_day_event() || event.base_event.is_floating_event()
-                    {
-                        continue;
-                    }
-
-                    events.push(Event {
-                        event_id: uid,
-                        summary: event.base_event.summary.as_deref(),
-                        description: event.base_event.description.as_deref(),
-                        location: event.base_event.location.as_deref(),
-                    });
-
-                    for (date, recur_event) in event
-                        .recur_iter(&calendar)?
-                        .skip_while(|(d, _)| *d < now)
-                        .take_while(|(d, _)| *d < now + Duration::days(30))
-                    {
-                        let mut attendees = Vec::new();
-                        'prop_loop: for prop in &recur_event.properties {
-                            if let ics_parser::property::Property::Attendee(prop) = prop {
-                                if prop.value.scheme() != "mailto" {
-                                    continue;
-                                }
-
-                                let email = prop.value.path().to_string();
-
-                                let mut common_name = None;
-                                for param in prop.parameters.parameters() {
-                                    match param {
-                                        ics_parser::parameters::Parameter::CN(cn) => {
-                                            common_name = Some(cn.clone());
-                                        }
-                                        ics_parser::parameters::Parameter::ParticipationStatus(
-                                            status,
-                                        ) if status == "DECLINED" => {
-                                            continue 'prop_loop;
-                                        }
-                                        _ => {}
-                                    }
-                                }
-
-                                attendees.push(Attendee { email, common_name })
-                            }
-                        }
-
-                        next_dates.push(EventInstance {
-                            event_id: uid,
-                            date,
-                            attendees,
-                        });
-                    }
-                }
-            }
-
+            let (events, next_dates) = parse_calendars_to_events(&calendars)?;
             self.database
-                .insert_events(calendar_id, events, next_dates)
+                .insert_events(db_calendar.calendar_id, events, next_dates)
                 .await?;
         }
 
@@ -281,7 +142,7 @@ impl AppState {
 
         info!(num = reminders.len(), "Updated reminders");
 
-        self.reminders.update(reminders);
+        self.reminders.replace(reminders);
         self.notify_db_update.notify_waiters();
 
         Ok(())
@@ -464,6 +325,7 @@ impl AppState {
     }
 }
 
+/// Entry point.
 #[actix_web::main]
 async fn main() -> Result<(), Error> {
     tracing_subscriber::fmt::init();

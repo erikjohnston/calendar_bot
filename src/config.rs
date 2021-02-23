@@ -1,3 +1,5 @@
+//! Config file structures.
+
 use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
