@@ -44,6 +44,8 @@ CREATE TABLE reminders (
     template text
 );
 
+CREATE UNIQUE INDEX ON reminders (calendar_id, event_id);
+
 CREATE TABLE users (
     user_id BIGSERIAL NOT NULL,
     matrix_id TEXT NOT NULL

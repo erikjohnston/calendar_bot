@@ -1,0 +1,163 @@
+<html>
+<title>Calendar Reminders</title>
+<style>
+    body {
+        margin: 0px;
+        padding: 0px;
+        background-color: #fff;
+
+        display: flex;
+        flex-wrap: wrap;
+
+        font-family: 'Gill Sans', 'Gill Sans MT', Calibri, 'Trebuchet MS', sans-serif;
+        font-size: large;
+
+        color: #4e004e;
+    }
+
+    #nav-header {
+        padding-top: 30px;
+        width: fit-content;
+        text-align: center;
+        font-weight: bolder;
+        font-size: 50px;
+        color: white;
+        border-bottom: 3px solid white;
+        margin: auto;
+    }
+
+    #sidebar {
+        /* background: #f8f4f8; */
+        /* background: linear-gradient(70deg, #5e075e 0%, #a000a0 100%); */
+        /* background: conic-gradient(from 340deg at 0% 0%, #5e075e, #a000a0 200deg); */
+
+        /*border-right: 3px solid #a000a0; */
+        border-right: 3px solid #4e004e;
+
+        flex-basis: 20rem;
+        flex-grow: 1;
+
+        /* margin-left: 20px; */
+        font-size: 30px;
+        color: white;
+        background: #5e075e;
+    }
+
+    #sidebar ul {
+        padding: 30px 20px;
+        list-style: none;
+    }
+
+    #sidebar li {
+        padding: 10px 20px;
+    }
+
+    #content {
+        flex-basis: 0;
+        flex-grow: 999;
+        min-width: 50%;
+        padding: 20px;
+    }
+
+    h1 {
+        text-align: center;
+        width: fit-content;
+        border-bottom: 3px solid #5e075e;
+        margin: 20px auto;
+    }
+
+    #reminders {
+        display: flex;
+        flex-flow: row wrap;
+    }
+
+    hr {
+        border-top: 3px solid #5e075e;
+    }
+
+    .reminder {
+        border: 2px solid #a000a0;
+        /* width: fit-content; */
+        padding: 10px;
+        margin: 10px;
+        border-radius: 10px;
+        flex-grow: 1;
+
+        display: flex;
+        flex-direction: column;
+
+        background: #FFF9FF;
+    }
+
+    blockquote {
+        white-space: pre-wrap;
+    }
+
+    .reminder h3 {
+        text-align: center;
+        width: fit-content;
+        border-bottom: 2px solid #5e075e;
+        margin: 20px auto;
+    }
+
+    .reminder-content {
+        flex-grow: 1;
+    }
+
+    .reminder-footer {
+        text-align: right;
+    }
+</style>
+
+<script>
+window.onload = function() {
+    let options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: "numeric", minute: "numeric"};
+
+    document.querySelectorAll(".datetime")
+        .forEach(function(node) {
+            node.innerText = new Date(node.innerText).toLocaleString(undefined, options);
+        });
+};
+
+</script>
+
+<body>
+    <div id="sidebar">
+        <div id="nav-header">C a l B O T</div>
+        <ul>
+            <li>Reminders</li>
+            <li>Events</li>
+        </ul>
+    </div>
+
+    <div id="content">
+        <h1>Events</h1>
+
+        <div id="reminders">
+
+            {% for event in events %}
+
+                <div class="reminder">
+                    <div class="reminder-content">
+                        <h3>{{ event.summary }}</h3>
+                        <p><b>Next date:</b> <span class="datetime">{{ event.next_dates[0] }}</span></p>
+                        <p><b>Reminder:</b> <a href="/event/{{ calendar_id }}/{{ event.event_id }}">Add reminder</a></p>
+                        {% if event.location %}<p><b>Location:</b> {{ event.location }}</p>{% endif %}
+                        {# {% if event.description %}
+                        <p><b>Description:</b></p>
+                        <blockquote>{{ event.description }}</blockquote>
+                        {% endif %} #}
+                    </div>
+                    <div class="reminder-footer">
+                        <a href="/event/{{ calendar_id }}/{{ event.event_id }}">View Event</a>
+                    </div>
+                </div>
+
+            {% endfor %}
+
+        </div>
+
+    </div>
+</body>
+
+</html>

@@ -1,0 +1,168 @@
+<html>
+<title>Calendar Reminders</title>
+<style>
+    body {
+        margin: 0px;
+        padding: 0px;
+        background-color: #fff;
+
+        display: flex;
+        flex-wrap: wrap;
+
+        font-family: 'Gill Sans', 'Gill Sans MT', Calibri, 'Trebuchet MS', sans-serif;
+        font-size: large;
+
+        color: #4e004e;
+    }
+
+    #nav-header {
+        padding-top: 30px;
+        width: fit-content;
+        text-align: center;
+        font-weight: bolder;
+        font-size: 50px;
+        color: white;
+        border-bottom: 3px solid white;
+        margin: auto;
+    }
+
+    #sidebar {
+        /* background: #f8f4f8; */
+        /* background: linear-gradient(70deg, #5e075e 0%, #a000a0 100%); */
+        /* background: conic-gradient(from 340deg at 0% 0%, #5e075e, #a000a0 200deg); */
+
+        /*border-right: 3px solid #a000a0; */
+        border-right: 3px solid #4e004e;
+
+        flex-basis: 20rem;
+        flex-grow: 1;
+
+        /* margin-left: 20px; */
+        font-size: 30px;
+        color: white;
+        background: #5e075e;
+    }
+
+    #sidebar ul {
+        padding: 30px 20px;
+        list-style: none;
+    }
+
+    #sidebar li {
+        padding: 10px 20px;
+    }
+
+    #content {
+        flex-basis: 0;
+        flex-grow: 999;
+        min-width: 50%;
+        padding: 20px;
+    }
+
+    h1 {
+        text-align: center;
+        width: fit-content;
+        border-bottom: 3px solid #5e075e;
+        margin: 20px auto;
+    }
+
+    #reminders {
+        display: flex;
+        flex-flow: row wrap;
+    }
+
+    hr {
+        border-top: 3px solid #5e075e;
+    }
+
+    blockquote {
+        white-space: pre-wrap;
+    }
+
+    #reminder-info {
+        width: fit-content;
+        min-width: 30em;
+    }
+
+    #reminder-info textarea {
+        width: 100%;
+        min-height: 20em;
+    }
+
+    #reminder-info input[type="text"] {
+        width: 100%;
+        padding: 5px;
+    }
+
+</style>
+
+<script>
+window.onload = function() {
+    let options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: "numeric", minute: "numeric"};
+
+    document.querySelectorAll(".datetime")
+        .forEach(function(node) {
+            node.innerText = new Date(node.innerText).toLocaleString(undefined, options);
+        });
+
+    on_default_template_clicked();
+};
+
+function on_default_template_clicked() {
+    let textarea = document.querySelector("#reminder-template");
+    let checkbox = document.querySelector("#default-template");
+
+    textarea.disabled = checkbox.checked;
+}
+
+</script>
+
+<body>
+    <div id="sidebar">
+        <div id="nav-header">C a l B O T</div>
+        <ul>
+            <li>Reminders</li>
+            <li>Events</li>
+        </ul>
+    </div>
+
+    <div id="content">
+        <div id="event-info">
+            <h1>{{ event.summary }}</h1>
+
+            <p><b>Next date:</b> <span class="datetime">{{ event.next_dates[0] }}</span></p>
+
+            {% if event.location %}<p><b>Location:</b> {{ event.location }}</p>{% endif %}
+
+            {% if event.description %}
+            <p><b>Description:</b></p>
+            <blockquote>{{ event.description }}</blockquote>
+            {% endif %}
+
+        </div>
+
+        <div id="reminder-info">
+            <h3>Reminder</h3>
+            {% if form_state == "saved" %}
+            Saved
+            {% elif form_state == "deleted" %}
+            Deleted
+            {% endif %}
+            <form action="/event/{{ calendar_id }}/{{ event.event_id }}/update_reminder" method="post">
+                <p>Minutes Before: <input type="number" name="minutes_before" value={{ reminder.minutes_before | default(value=30) }} /></p>
+                <p>Room: <input type="text" name="room_id" placeholder="#room:example.com" {% if reminder %} value="{{ reminder.room_id }}" {% endif %} /></p>
+
+                <p>Template: <label for="default-template">Default Template</label><input type="checkbox" name="use_default" onclick="on_default_template_clicked()" id="default-template" {% if not reminder or not reminder.template %} checked {% endif %} /></p>
+                <textarea name="template" id="reminder-template">{{ reminder.template | default(value=default_template) | safe }}</textarea>
+                {% if reminder %}
+                <p><input type="submit" value="Update" /> <input type="submit" value="Delete" formaction="/event/{{ calendar_id }}/{{ event.event_id }}/delete_reminder" /></p>
+                {% else %}
+                <p><input type="submit" value="Add"/></p>
+                {% endif %}
+            </form>
+        </div>
+
+    </div>
+</body>
+
+</html>

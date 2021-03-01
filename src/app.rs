@@ -10,7 +10,7 @@ use std::{
 use crate::DEFAULT_TEMPLATE;
 use crate::{
     calendar::{fetch_calendars, parse_calendars_to_events},
-    database::Reminder,
+    database::ReminderInstance,
 };
 use crate::{config::Config, database::Database};
 
@@ -31,7 +31,7 @@ use tokio::{
 use tracing::{error, info, instrument, Span};
 
 /// Inner type for [`Reminders`]
-type ReminderInner = Arc<Mutex<VecDeque<(DateTime<Utc>, Reminder)>>>;
+type ReminderInner = Arc<Mutex<VecDeque<(DateTime<Utc>, ReminderInstance)>>>;
 
 /// The set of reminders that need to be sent out.
 #[derive(Debug, Clone, Default)]
@@ -48,7 +48,7 @@ impl Reminders {
     }
 
     /// Pop all reminders that are ready to be sent now.
-    fn pop_due_reminders(&self) -> Vec<Reminder> {
+    fn pop_due_reminders(&self) -> Vec<ReminderInstance> {
         let mut reminders = self.inner.lock().expect("poisoned");
 
         let mut due_reminders = Vec::new();
@@ -67,7 +67,7 @@ impl Reminders {
     }
 
     /// Replace the current set of reminders
-    fn replace(&self, reminders: VecDeque<(DateTime<Utc>, Reminder)>) {
+    fn replace(&self, reminders: VecDeque<(DateTime<Utc>, ReminderInstance)>) {
         let mut inner = self.inner.lock().expect("poisoned");
 
         *inner = reminders;
@@ -211,7 +211,7 @@ impl App {
 
     /// Send the reminder to the appropriate room.
     #[instrument(skip(self), fields(status))]
-    async fn send_reminder(&self, reminder: Reminder) -> Result<(), Error> {
+    async fn send_reminder(&self, reminder: ReminderInstance) -> Result<(), Error> {
         let join_url = format!(
             "{}/_matrix/client/r0/join/{}",
             self.config.matrix.homeserver_url, reminder.room_id
