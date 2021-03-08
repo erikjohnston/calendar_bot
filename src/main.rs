@@ -21,6 +21,7 @@ mod site;
 
 use app::App;
 use database::Database;
+use tera::Tera;
 use tokio::task::spawn_local;
 use tracing_subscriber::fmt::format::FmtSpan;
 
@@ -76,6 +77,8 @@ async fn main() -> Result<(), Error> {
     let db_pool = bb8::Pool::builder().max_size(15).build(manager).await?;
     let database = Database::from_pool(db_pool);
 
+    let templates = Tera::new("res/*")?;
+
     let notify_db_update = Default::default();
     let app = App {
         config,
@@ -84,6 +87,7 @@ async fn main() -> Result<(), Error> {
         notify_db_update,
         reminders: Default::default(),
         email_to_matrix_id: Default::default(),
+        templates,
     };
 
     spawn_local(app.clone().run());

@@ -1,6 +1,7 @@
 CREATE TABLE calendars (
     calendar_id BIGSERIAL PRIMARY KEY,
     user_id bigint NOT NULL,
+    name TEXT NOT NULL,
     url text NOT NULL,
     user_name text,
     password text
@@ -35,7 +36,7 @@ CREATE INDEX ON next_dates USING btree (calendar_id, event_id);
 
 
 CREATE TABLE reminders (
-    reminder_id BIGSERIAL NOT NULL,
+    reminder_id BIGSERIAL PRIMARY KEY,
     user_id bigint NOT NULL,
     calendar_id bigint NOT NULL,
     event_id text NOT NULL,
@@ -44,10 +45,9 @@ CREATE TABLE reminders (
     template text
 );
 
-CREATE UNIQUE INDEX ON reminders (calendar_id, event_id);
 
 CREATE TABLE users (
-    user_id BIGSERIAL NOT NULL,
+    user_id BIGSERIAL PRIMARY KEY,
     matrix_id TEXT NOT NULL
 );
 

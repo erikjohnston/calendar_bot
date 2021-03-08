@@ -1,0 +1,52 @@
+<html>
+<title>Calendar Reminders</title>
+<meta charset="utf-8">
+<style>
+    {% include "base.css" %}
+
+    form {
+        max-width: 500px;
+    }
+
+    input[type="text"], input[type="password"] {
+        width: 100%;
+    }
+</style>
+
+<script>
+{% include "base.js" %}
+
+</script>
+
+<body>
+    {% include "sidebar.html" %}
+
+    <div id="content">
+
+        <h1>{{ calendar.name | default(value="New Calendar") }}</h1>
+
+        <form method="post">
+            <p>Name:
+                <input type="text" name="name" placeholder="Calendar name" {% if calendar %}value="{{ calendar.name }}"{% endif %} /></p>
+            <p>URL:
+                <input type="text" name="url" placeholder="https://caldav.example.com" {% if calendar %}value="{{ calendar.url }}"{% endif %}/></p>
+            <p>User Name:
+                <input type="text" name="user_name" placeholder="User name" {% if calendar %}value="{{ calendar.user_name | default(value='') }}"{% endif %} /></p>
+            <p>Password{% if calendar %} (leave blank to keep unchanged){% endif %}:
+                <input type="password" name="password" placeholder="Password"/></p>
+
+            {% if calendar %}
+            <p>
+                <input type="submit" value="Update" formaction="/calendar/{{ calendar.calendar_id }}/edit" />
+                <input type="submit" value="Delete" formaction="/calendar/{{ calendar.calendar_id }}/delete" />
+            </p>
+            {% else %}
+            <p><input type="submit" value="Add" formaction="/calendar/new" /></p>
+            {% endif %}
+        </form>
+
+
+    </div>
+</body>
+
+</html>

@@ -24,9 +24,10 @@ pub struct Attendee {
 }
 
 /// The URL and credentials of a calendar.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct Calendar {
     pub calendar_id: i64,
+    pub name: String,
     pub url: String,
     pub user_name: Option<String>,
     pub password: Option<String>,
@@ -35,6 +36,7 @@ pub struct Calendar {
 /// Basic info for an event.
 #[derive(Debug, Clone)]
 pub struct Event<'a> {
+    pub calendar_id: i64,
     pub event_id: Cow<'a, str>,
     pub summary: Option<Cow<'a, str>>,
     pub description: Option<Cow<'a, str>>,
@@ -65,6 +67,7 @@ pub struct ReminderInstance {
 /// A configured reminder
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Reminder {
+    pub reminder_id: i64,
     pub calendar_id: i64,
     pub event_id: String,
     pub template: Option<String>,
@@ -90,20 +93,22 @@ impl Database {
 
         let rows = db_conn
             .query(
-                "SELECT calendar_id, url, user_name, password FROM calendars",
+                "SELECT calendar_id, name, url, user_name, password FROM calendars",
                 &[],
             )
             .await?;
 
         let mut calendars = Vec::with_capacity(rows.len());
         for row in rows {
-            let calendar_id: i64 = row.get(0);
-            let url: String = row.get(1);
-            let user_name: Option<String> = row.get(2);
-            let password: Option<String> = row.get(3);
+            let calendar_id = row.try_get("calendar_id")?;
+            let name = row.try_get("name")?;
+            let url = row.try_get("url")?;
+            let user_name = row.try_get("user_name")?;
+            let password = row.try_get("password")?;
 
             calendars.push(Calendar {
                 calendar_id,
+                name,
                 url,
                 user_name,
                 password,
@@ -111,6 +116,119 @@ impl Database {
         }
 
         Ok(calendars)
+    }
+
+    pub async fn get_calendars_for_user(&self, user_id: i64) -> Result<Vec<Calendar>, Error> {
+        let db_conn = self.db_pool.get().await?;
+
+        let rows = db_conn
+            .query(
+                r#"
+                    SELECT calendar_id, name, url, user_name, password FROM calendars
+                    WHERE user_id = $1
+                "#,
+                &[&user_id],
+            )
+            .await?;
+
+        let mut calendars = Vec::with_capacity(rows.len());
+        for row in rows {
+            let calendar_id = row.try_get("calendar_id")?;
+            let name = row.try_get("name")?;
+            let url = row.try_get("url")?;
+            let user_name = row.try_get("user_name")?;
+            let password = row.try_get("password")?;
+
+            calendars.push(Calendar {
+                calendar_id,
+                name,
+                url,
+                user_name,
+                password,
+            })
+        }
+
+        Ok(calendars)
+    }
+
+    pub async fn get_calendar(&self, calendar_id: i64) -> Result<Option<Calendar>, Error> {
+        let db_conn = self.db_pool.get().await?;
+
+        let row = db_conn
+            .query_opt(
+                r#"
+                    SELECT calendar_id, name, url, user_name, password FROM calendars
+                    WHERE calendar_id = $1
+                "#,
+                &[&calendar_id],
+            )
+            .await?;
+
+        if let Some(row) = row {
+            let calendar_id = row.try_get("calendar_id")?;
+            let name = row.try_get("name")?;
+            let url = row.try_get("url")?;
+            let user_name = row.try_get("user_name")?;
+            let password = row.try_get("password")?;
+
+            Ok(Some(Calendar {
+                calendar_id,
+                name,
+                url,
+                user_name,
+                password,
+            }))
+        } else {
+            Ok(None)
+        }
+    }
+
+    pub async fn update_calendar(
+        &self,
+        calendar_id: i64,
+        name: String,
+        url: String,
+        user_name: Option<String>,
+        password: Option<String>,
+    ) -> Result<(), Error> {
+        let db_conn = self.db_pool.get().await?;
+
+        db_conn
+            .execute(
+                r#"
+                    UPDATE calendars
+                    SET name = $2, url = $3, user_name = $4, password = $5
+                    WHERE calendar_id = $1
+                "#,
+                &[&calendar_id, &name, &url, &user_name, &password],
+            )
+            .await?;
+
+        Ok(())
+    }
+
+    pub async fn add_calendar(
+        &self,
+        user_id: i64,
+        name: String,
+        url: String,
+        user_name: Option<String>,
+        password: Option<String>,
+    ) -> Result<i64, Error> {
+        let db_conn = self.db_pool.get().await?;
+
+        let row = db_conn
+            .query_one(
+                r#"
+                    INSERT INTO calendars (user_id, name, url, user_name, password)
+                    VALUES ($1, $2, $3, $4, $5)
+                    RETURNING calendar_id
+                "#,
+                &[&user_id, &name, &url, &user_name, &password],
+            )
+            .await?;
+
+        Ok(row.try_get(0)?)
     }
 
     /// Insert events and the next instances of the event.
@@ -175,7 +293,7 @@ impl Database {
         Ok(())
     }
 
-    pub async fn upsert_reminder(
+    pub async fn add_reminder(
         &self,
         user_id: i64,
         calendar_id: i64,
@@ -191,11 +309,6 @@ impl Database {
                 r#"
                     INSERT INTO reminders (user_id, calendar_id, event_id, room_id, minutes_before, template)
                     VALUES ($1, $2, $3, $4, $5, $6)
-                    ON CONFLICT (calendar_id, event_id)
-                    DO UPDATE SET
-                        room_id = EXCLUDED.room_id,
-                        minutes_before = EXCLUDED.minutes_before,
-                        template = EXCLUDED.template
             "#,
                 &[&user_id, &calendar_id, &event_id, &room_id, &minutes_before, &template],
             )
@@ -204,16 +317,39 @@ impl Database {
         Ok(())
     }
 
-    pub async fn delete_reminder(&self, calendar_id: i64, event_id: &'_ str) -> Result<(), Error> {
+    pub async fn update_reminder(
+        &self,
+        reminder_id: i64,
+        room_id: &'_ str,
+        minutes_before: i64,
+        template: Option<&'_ str>,
+    ) -> Result<(), Error> {
+        let db_conn = self.db_pool.get().await?;
+
+        db_conn
+            .execute(
+                r#"
+                    UPDATE reminders
+                    SET room_id = $1, minutes_before = $2, template = $3
+                    WHERE reminder_id = $4
+            "#,
+                &[&room_id, &minutes_before, &template, &reminder_id],
+            )
+            .await?;
+
+        Ok(())
+    }
+
+    pub async fn delete_reminder(&self, reminder_id: i64) -> Result<(), Error> {
         let db_conn = self.db_pool.get().await?;
 
         db_conn
             .execute(
                 r#"
                     DELETE FROM reminders
-                    WHERE calendar_id = $1 AND event_id = $2
+                    WHERE reminder_id = $1
             "#,
-                &[&calendar_id, &event_id],
+                &[&reminder_id],
             )
             .await?;
 
@@ -302,12 +438,12 @@ impl Database {
             Vec::with_capacity(rows.len());
 
         for row in rows {
-            let event_id: String = row.get(0);
-            let summary: Option<String> = row.get(1);
-            let description: Option<String> = row.get(2);
-            let location: Option<String> = row.get(3);
-            let date: DateTime<FixedOffset> = row.get(4);
-            let attendees: Vec<Attendee> = row.get(5);
+            let event_id: String = row.try_get("event_id")?;
+            let summary: Option<String> = row.try_get("summary")?;
+            let description: Option<String> = row.try_get("description")?;
+            let location: Option<String> = row.try_get("location")?;
+            let date: DateTime<FixedOffset> = row.try_get("timestamp")?;
+            let attendees: Vec<Attendee> = row.try_get("attendees")?;
 
             if date < Utc::now() {
                 // ignore events in the past
@@ -328,6 +464,72 @@ impl Database {
             }
 
             let event = Event {
+                calendar_id,
+                event_id: event_id.clone().into(),
+                summary: summary.map(Cow::from),
+                description: description.map(Cow::from),
+                location: location.map(Cow::from),
+            };
+            events.push((event, vec![instance]));
+        }
+
+        events.sort_by_key(|(_, i)| i[0].date);
+
+        Ok(events)
+    }
+
+    pub async fn get_events_for_user(
+        &self,
+        user_id: i64,
+    ) -> Result<Vec<(Event<'static>, Vec<EventInstance<'static>>)>, Error> {
+        let db_conn = self.db_pool.get().await?;
+
+        let rows = db_conn
+            .query(
+                r#"
+                    SELECT DISTINCT ON (calendar_id, event_id) calendar_id, event_id, summary, description, location, timestamp, attendees
+                    FROM calendars
+                    INNER JOIN events USING (calendar_id)
+                    INNER JOIN next_dates USING (calendar_id, event_id)
+                    WHERE user_id = $1
+                    ORDER BY calendar_id, event_id, timestamp
+                "#,
+                &[&user_id],
+            )
+            .await?;
+
+        let mut events: Vec<(Event<'static>, Vec<EventInstance<'static>>)> =
+            Vec::with_capacity(rows.len());
+
+        for row in rows {
+            let calendar_id: i64 = row.try_get("calendar_id")?;
+            let event_id: String = row.try_get("event_id")?;
+            let summary: Option<String> = row.try_get("summary")?;
+            let description: Option<String> = row.try_get("description")?;
+            let location: Option<String> = row.try_get("location")?;
+            let date: DateTime<FixedOffset> = row.try_get("timestamp")?;
+            let attendees: Vec<Attendee> = row.try_get("attendees")?;
+
+            if date < Utc::now() {
+                // ignore events in the past
+                continue;
+            }
+
+            let instance = EventInstance {
+                event_id: event_id.clone().into(),
+                date,
+                attendees,
+            };
+
+            if let Some((event, instances)) = events.last_mut() {
+                if event.event_id == event_id {
+                    instances.push(instance);
+                    continue;
+                }
+            }
+
+            let event = Event {
+                calendar_id,
                 event_id: event_id.clone().into(),
                 summary: summary.map(Cow::from),
                 description: description.map(Cow::from),
@@ -372,6 +574,7 @@ impl Database {
         let location: Option<String> = row.get(3);
 
         let event = Event {
+            calendar_id,
             event_id: event_id.clone().into(),
             summary: summary.map(Cow::from),
             description: description.map(Cow::from),
@@ -416,21 +619,57 @@ impl Database {
     }
 
     /// Get reminder for event
-    pub async fn get_reminder_for_event(
+    pub async fn get_reminders_for_event(
         &self,
         calendar_id: i64,
         event_id: &str,
-    ) -> Result<Option<Reminder>, Error> {
+    ) -> Result<Vec<Reminder>, Error> {
+        let db_conn = self.db_pool.get().await?;
+
+        let rows = db_conn
+            .query(
+                r#"
+                        SELECT reminder_id, room_id, minutes_before, template
+                        FROM reminders
+                        WHERE calendar_id = $1 AND event_id = $2
+                    "#,
+                &[&calendar_id, &event_id],
+            )
+            .await?;
+
+        let mut reminders = Vec::with_capacity(rows.len());
+        for row in rows {
+            let reminder_id = row.try_get("reminder_id")?;
+            let room_id = row.try_get("room_id")?;
+            let minutes_before = row.try_get("minutes_before")?;
+            let template = row.try_get("template")?;
+
+            let reminder = Reminder {
+                reminder_id,
+                calendar_id,
+                event_id: event_id.to_string(),
+                room_id,
+                minutes_before,
+                template,
+            };
+            reminders.push(reminder)
+        }
+
+        Ok(reminders)
+    }
+
+    /// Get a reminder for event
+    pub async fn get_reminder(&self, reminder_id: i64) -> Result<Option<Reminder>, Error> {
         let db_conn = self.db_pool.get().await?;
 
         let row = db_conn
             .query_opt(
                 r#"
-                        SELECT room_id, minutes_before, template
+                        SELECT calendar_id, event_id, reminder_id, room_id, minutes_before, template
                         FROM reminders
-                        WHERE calendar_id = $1 AND event_id = $2
+                        WHERE reminder_id = $1
                     "#,
-                &[&calendar_id, &event_id],
+                &[&reminder_id],
             )
             .await?;
 
@@ -440,13 +679,17 @@ impl Database {
             return Ok(None);
         };
 
-        let room_id: String = row.try_get("room_id")?;
-        let minutes_before: i64 = row.try_get("minutes_before")?;
-        let template: Option<String> = row.try_get("template")?;
+        let calendar_id = row.try_get("calendar_id")?;
+        let reminder_id = row.try_get("reminder_id")?;
+        let event_id = row.try_get("event_id")?;
+        let room_id = row.try_get("room_id")?;
+        let minutes_before = row.try_get("minutes_before")?;
+        let template = row.try_get("template")?;
 
         let reminder = Reminder {
+            reminder_id,
             calendar_id,
-            event_id: event_id.to_string(),
+            event_id,
             room_id,
             minutes_before,
             template,

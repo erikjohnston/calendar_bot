@@ -1,0 +1,44 @@
+<html>
+<title>Calendar Reminders</title>
+<meta charset="utf-8">
+<style>
+    {% include "base.css" %}
+</style>
+
+<script>
+{% include "base.js" %}
+
+</script>
+
+<body>
+    {% include "sidebar.html" %}
+
+    <div id="content">
+
+        <h1>Calendars</h1>
+
+        <p><a href="/calendar/new">Add Calendar</a></p>
+
+        <div id="content-box-wrapper">
+
+            {% for calendar in calendars %}
+
+                <div class="content-box">
+                    <div class="content-box-content">
+                        <h3><a href="/events/{{ calendar.calendar_id }}">{{ calendar.name }}</a></h3>
+                        <p><b>User name:</b> {{ calendar.user_name | default(value="none") }}</p>
+                        <p><b>Url:</b> {{ calendar.url }}</p>
+                    </div>
+                    <div class="content-box-footer">
+                        <a href="/calendar/{{ calendar.calendar_id }}">Edit Calendar</a>
+                    </div>
+                </div>
+
+            {% endfor %}
+
+        </div>
+
+    </div>
+</body>
+
+</html>

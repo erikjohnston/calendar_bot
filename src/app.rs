@@ -24,6 +24,7 @@ use handlebars::Handlebars;
 use itertools::Itertools;
 
 use serde_json::json;
+use tera::Tera;
 use tokio::{
     sync::Notify,
     time::{interval, sleep},
@@ -83,6 +84,7 @@ pub struct App {
     pub notify_db_update: Arc<Notify>,
     pub reminders: Reminders,
     pub email_to_matrix_id: Arc<Mutex<BTreeMap<String, String>>>,
+    pub templates: Tera,
 }
 
 impl App {
@@ -97,7 +99,7 @@ impl App {
 
     /// Fetches and stores updates for the stored calendars.
     #[instrument(skip(self))]
-    async fn update_calendars(&self) -> Result<(), Error> {
+    pub async fn update_calendars(&self) -> Result<(), Error> {
         let db_calendars = self.database.get_calendars().await?;
 
         for db_calendar in db_calendars {
@@ -109,7 +111,8 @@ impl App {
             )
             .await?;
 
-            let (events, next_dates) = parse_calendars_to_events(&calendars)?;
+            let (events, next_dates) =
+                parse_calendars_to_events(db_calendar.calendar_id, &calendars)?;
             self.database
                 .insert_events(db_calendar.calendar_id, events, next_dates)
                 .await?;

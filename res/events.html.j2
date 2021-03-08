@@ -1,0 +1,40 @@
+<html>
+<title>Calendar Reminders</title>
+<meta charset="utf-8">
+<style>
+    {% include "base.css" %}
+</style>
+
+<script>
+{% include "base.js" %}
+</script>
+
+<body>
+    {% include "sidebar.html" %}
+
+    <div id="content">
+        <h1>Events</h1>
+
+        <div id="content-box-wrapper">
+
+            {% for event in events %}
+
+                <div class="content-box">
+                    <div class="content-box-content">
+                        <h3><a href="/event/{{ event.calendar_id }}/{{ event.event_id }}">{{ event.summary }}</a></h3>
+                        <p><b>Next date:</b> <span class="datetime">{{ event.next_dates[0] }}</span></p>
+                        {% if event.location %}<p><b>Location:</b> {{ event.location }}</p>{% endif %}
+                    </div>
+                    <div class="content-box-footer">
+                        <a href="/event/{{ event.calendar_id }}/{{ event.event_id }}">View Event</a>
+                    </div>
+                </div>
+
+            {% endfor %}
+
+        </div>
+
+    </div>
+</body>
+
+</html>

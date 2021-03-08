@@ -1,9 +1,8 @@
 //! The web site for the app.
 
 use actix_web::{
-    error::ErrorInternalServerError,
+    error::{ErrorInternalServerError, ErrorNotFound},
     get,
-    http::header::ContentType,
     middleware::Logger,
     post,
     web::{Data, Form, Path, Query},
@@ -18,9 +17,6 @@ use tracing_actix_web::TracingLogger;
 
 use crate::app::App;
 
-const EVENTS_TEMPLATE: &str = include_str!("res/events.html.j2");
-const EVENT_TEMPLATE: &str = include_str!("res/event.html.j2");
-
 /// The index page
 #[get("/")]
 async fn index() -> impl Responder {
@@ -28,90 +24,9 @@ async fn index() -> impl Responder {
     "Hello!"
 }
 
-/// List *all* configured reminders
-#[get("/admin/all_reminders")]
-async fn next_reminders(app: Data<App>) -> Result<impl Responder, actix_web::Error> {
-    let reminders = app
-        .database
-        .get_next_reminders()
-        .await
-        .map_err(ErrorInternalServerError)?;
-
-    let result = reminders
-        .into_iter()
-        .map(|(date, reminder)| {
-            format!(
-                "Summary: {}, Date: {}",
-                reminder.summary.as_deref().unwrap_or("<null>"),
-                date
-            )
-        })
-        .join("\n\n");
-
-    Ok(result)
-}
-
-/// List all events in a calendar
-#[get("/admin/all_events/{calendar_id}")]
-async fn list_events(
-    app: Data<App>,
-    path: Path<(i64,)>,
-) -> Result<impl Responder, actix_web::Error> {
-    let (calendar_id,) = path.into_inner();
-
-    let events = app
-        .database
-        .get_events_in_calendar(calendar_id)
-        .await
-        .map_err(ErrorInternalServerError)?;
-
-    let result = events
-        .into_iter()
-        .map(|(event, instances)| {
-            format!(
-                "Summary: {}, Date: {}",
-                event.summary.as_deref().unwrap_or("<null>"),
-                instances[0].date
-            )
-        })
-        .join("\n\n");
-
-    Ok(result)
-}
-
-/// List all events in a calendar
-#[get("/admin/event/{calendar_id}/{event_id}")]
-async fn get_event(
-    app: Data<App>,
-    path: Path<(i64, String)>,
-) -> Result<impl Responder, actix_web::Error> {
-    let (calendar_id, event_id) = path.into_inner();
-
-    let res = app
-        .database
-        .get_event_in_calendar(calendar_id, &event_id)
-        .await
-        .map_err(ErrorInternalServerError)?;
-
-    let (event, instances) = if let Some((event, instances)) = res {
-        (event, instances)
-    } else {
-        return Err(actix_web::error::ErrorNotFound("Couldn't find event"));
-    };
-
-    let result = format!(
-        "Summary: {}, Dates: {}\n\n{}",
-        event.summary.as_deref().unwrap_or("<null>"),
-        instances.iter().map(|d| d.date).join(", "),
-        event.description.as_deref().unwrap_or(""),
-    );
-
-    Ok(result)
-}
-
 /// List all events in a calendar
 #[get("/events/{calendar_id}")]
-async fn list_events_html(
+async fn list_events_calendar_html(
     app: Data<App>,
     path: Path<(i64,)>,
 ) -> Result<impl Responder, actix_web::Error> {
@@ -127,6 +42,7 @@ async fn list_events_html(
         "events": events.iter().map(|(event, instances)| {
             json!({
                 "event_id": &event.event_id,
+                "calendar_id": &event.calendar_id,
                 "summary": &event.summary,
                 "description": &event.description,
                 "location": &event.location,
@@ -136,15 +52,79 @@ async fn list_events_html(
         "calendar_id": calendar_id,
     });
 
-    let result = tera::Tera::one_off(
-        EVENTS_TEMPLATE,
-        &tera::Context::from_serialize(&context).map_err(ErrorInternalServerError)?,
-        true,
-    )
-    .map_err(ErrorInternalServerError)?;
+    let result = app
+        .templates
+        .render(
+            "events.html.j2",
+            &tera::Context::from_serialize(&context).map_err(ErrorInternalServerError)?,
+        )
+        .map_err(ErrorInternalServerError)?;
 
     let mut builder = HttpResponse::Ok();
-    builder.insert_header(ContentType::html());
+    builder.insert_header(("Content-Type", "text/html; charset=utf-8"));
+    let response = builder.body(result);
+
+    Ok(response)
+}
+
+#[get("/events")]
+async fn list_events_html(app: Data<App>) -> Result<impl Responder, actix_web::Error> {
+    let events = app
+        .database
+        .get_events_for_user(1) // FIXME
+        .await
+        .map_err(ErrorInternalServerError)?;
+
+    let context = json!({
+        "events": events.iter().map(|(event, instances)| {
+            json!({
+                "event_id": &event.event_id,
+                "calendar_id": &event.calendar_id,
+                "summary": &event.summary,
+                "description": &event.description,
+                "location": &event.location,
+                "next_dates": instances.iter().map(|i| i.date.to_string()).collect_vec(),
+            })
+        }).collect_vec(),
+    });
+
+    let result = app
+        .templates
+        .render(
+            "events.html.j2",
+            &tera::Context::from_serialize(&context).map_err(ErrorInternalServerError)?,
+        )
+        .map_err(ErrorInternalServerError)?;
+
+    let mut builder = HttpResponse::Ok();
+    builder.insert_header(("Content-Type", "text/html; charset=utf-8"));
+    let response = builder.body(result);
+
+    Ok(response)
+}
+
+#[get("/calendars")]
+async fn list_calendars_html(app: Data<App>) -> Result<impl Responder, actix_web::Error> {
+    let calendars = app
+        .database
+        .get_calendars_for_user(1) // FIXME
+        .await
+        .map_err(ErrorInternalServerError)?;
+
+    let context = json!({
+        "calendars": calendars,
+    });
+
+    let result = app
+        .templates
+        .render(
+            "calendars.html.j2",
+            &tera::Context::from_serialize(&context).map_err(ErrorInternalServerError)?,
+        )
+        .map_err(ErrorInternalServerError)?;
+
+    let mut builder = HttpResponse::Ok();
+    builder.insert_header(("Content-Type", "text/html; charset=utf-8"));
     let response = builder.body(result);
 
     Ok(response)
@@ -153,6 +133,127 @@ async fn list_events_html(
 #[derive(Debug, Clone, Deserialize)]
 struct EventFormState {
     state: Option<String>,
+}
+
+#[get("/event/{calendar_id}/{event_id}/new_reminder")]
+async fn new_reminder_html(
+    app: Data<App>,
+    path: Path<(i64, String)>,
+    query: Query<EventFormState>,
+) -> Result<impl Responder, actix_web::Error> {
+    let (calendar_id, event_id) = path.into_inner();
+
+    let state = match query.into_inner().state.as_deref() {
+        Some("saved") => Some("saved"),
+        Some("deleted") => Some("deleted"),
+        _ => None,
+    };
+
+    let res = app
+        .database
+        .get_event_in_calendar(calendar_id, &event_id)
+        .await
+        .map_err(ErrorInternalServerError)?;
+
+    let (event, instances) = if let Some((event, instances)) = res {
+        (event, instances)
+    } else {
+        return Err(actix_web::error::ErrorNotFound("Couldn't find event"));
+    };
+
+    let context = json!({
+        "event": {
+            "event_id": &event.event_id,
+            "summary": &event.summary,
+            "description": &event.description,
+            "location": &event.location,
+            "next_dates": instances.iter().map(|i| i.date.to_string()).collect_vec()
+        },
+        "calendar_id": calendar_id,
+        "default_template": crate::DEFAULT_TEMPLATE,
+        "form_state": state,
+    });
+
+    let result = app
+        .templates
+        .render(
+            "reminder.html.j2",
+            &tera::Context::from_serialize(&context).map_err(ErrorInternalServerError)?,
+        )
+        .map_err(ErrorInternalServerError)?;
+
+    let mut builder = HttpResponse::Ok();
+    builder.insert_header(("Content-Type", "text/html; charset=utf-8"));
+    let response = builder.body(result);
+
+    Ok(response)
+}
+
+#[get("/event/{calendar_id}/{event_id}/reminder/{reminder_id}")]
+async fn get_reminder_html(
+    app: Data<App>,
+    path: Path<(i64, String, i64)>,
+    query: Query<EventFormState>,
+) -> Result<impl Responder, actix_web::Error> {
+    let (calendar_id, event_id, reminder_id) = path.into_inner();
+
+    let state = match query.into_inner().state.as_deref() {
+        Some("saved") => Some("saved"),
+        Some("deleted") => Some("deleted"),
+        _ => None,
+    };
+
+    let res = app
+        .database
+        .get_event_in_calendar(calendar_id, &event_id)
+        .await
+        .map_err(ErrorInternalServerError)?;
+
+    let (event, instances) = if let Some((event, instances)) = res {
+        (event, instances)
+    } else {
+        return Err(actix_web::error::ErrorNotFound("Couldn't find event"));
+    };
+
+    let reminder = app
+        .database
+        .get_reminder(reminder_id)
+        .await
+        .map_err(ErrorInternalServerError)?;
+
+    let reminder = if let Some(reminder) = reminder {
+        reminder
+    } else {
+        return Err(actix_web::error::ErrorNotFound("Couldn't find reminder"));
+    };
+
+    let context = json!({
+        "event": {
+            "event_id": &event.event_id,
+            "summary": &event.summary,
+            "description": &event.description,
+            "location": &event.location,
+            "next_dates": instances.iter().map(|i| i.date.to_string()).collect_vec()
+        },
+        "calendar_id": calendar_id,
+        "reminder": reminder,
+        "default_template": crate::DEFAULT_TEMPLATE,
+        "form_state": state,
+    });
+
+    let result = app
+        .templates
+        .render(
+            "reminder.html.j2",
+            &tera::Context::from_serialize(&context).map_err(ErrorInternalServerError)?,
+        )
+        .map_err(ErrorInternalServerError)?;
+
+    let mut builder = HttpResponse::Ok();
+    builder.insert_header(("Content-Type", "text/html; charset=utf-8"));
+    let response = builder.body(result);
+
+    Ok(response)
 }
 
 #[get("/event/{calendar_id}/{event_id}")]
@@ -181,9 +282,9 @@ async fn get_event_html(
         return Err(actix_web::error::ErrorNotFound("Couldn't find event"));
     };
 
-    let reminder = app
+    let reminders = app
         .database
-        .get_reminder_for_event(calendar_id, &event_id)
+        .get_reminders_for_event(calendar_id, &event_id)
         .await
         .map_err(ErrorInternalServerError)?;
 
@@ -196,20 +297,21 @@ async fn get_event_html(
             "next_dates": instances.iter().map(|i| i.date.to_string()).collect_vec()
         },
         "calendar_id": calendar_id,
-        "reminder": reminder,
+        "reminders": reminders,
         "default_template": crate::DEFAULT_TEMPLATE,
         "form_state": state,
     });
 
-    let result = tera::Tera::one_off(
-        EVENT_TEMPLATE,
-        &tera::Context::from_serialize(&context).map_err(ErrorInternalServerError)?,
-        true,
-    )
-    .map_err(ErrorInternalServerError)?;
+    let result = app
+        .templates
+        .render(
+            "event.html.j2",
+            &tera::Context::from_serialize(&context).map_err(ErrorInternalServerError)?,
+        )
+        .map_err(ErrorInternalServerError)?;
 
     let mut builder = HttpResponse::Ok();
-    builder.insert_header(ContentType::html());
+    builder.insert_header(("Content-Type", "text/html; charset=utf-8"));
     let response = builder.body(result);
 
     Ok(response)
@@ -219,13 +321,18 @@ async fn get_event_html(
 async fn delete_reminder_html(
     app: Data<App>,
     path: Path<(i64, String)>,
+    data: Form<UpdateReminderForm>,
 ) -> Result<impl Responder, actix_web::Error> {
     let (calendar_id, event_id) = path.into_inner();
 
-    app.database
-        .delete_reminder(calendar_id, &event_id)
-        .await
-        .map_err(ErrorInternalServerError)?;
+    if let Some(reminder_id) = data.reminder_id {
+        app.database
+            .delete_reminder(reminder_id)
+            .await
+            .map_err(ErrorInternalServerError)?;
+    } else {
+        return Err(actix_web::error::ErrorNotFound("Couldn't find reminder"));
+    }
 
     let mut builder = HttpResponse::SeeOther();
     builder.insert_header((
@@ -239,14 +346,15 @@ async fn delete_reminder_html(
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct UpdateReminderForm {
+    pub reminder_id: Option<i64>,
     pub use_default: Option<String>, // A checkbox, so `Some()` if checked, `None` if not.
     pub template: Option<String>,
     pub minutes_before: i64,
     pub room_id: String,
 }
 
-#[post("/event/{calendar_id}/{event_id}/update_reminder")]
-async fn update_reminder_html(
+#[post("/event/{calendar_id}/{event_id}/reminder")]
+async fn upsert_reminder_html(
     app: Data<App>,
     path: Path<(i64, String)>,
     data: Form<UpdateReminderForm>,
@@ -261,23 +369,175 @@ async fn update_reminder_html(
         data.template.as_deref()
     };
 
-    app.database
-        .upsert_reminder(
-            1, // FIXME
-            calendar_id,
-            &event_id,
-            &data.room_id,
-            data.minutes_before,
-            template,
-        )
-        .await
-        .map_err(ErrorInternalServerError)?;
+    if let Some(reminder_id) = data.reminder_id {
+        app.database
+            .update_reminder(reminder_id, &data.room_id, data.minutes_before, template)
+            .await
+            .map_err(ErrorInternalServerError)?;
+
+        // TODO: Reload reminders
+    } else {
+        app.database
+            .add_reminder(
+                1, // FIXME
+                calendar_id,
+                &event_id,
+                &data.room_id,
+                data.minutes_before,
+                template,
+            )
+            .await
+            .map_err(ErrorInternalServerError)?;
+    }
 
     let mut builder = HttpResponse::SeeOther();
     builder.insert_header((
         "Location",
         format!("/event/{}/{}?state=saved", calendar_id, event_id),
     ));
+    let response = builder.finish();
+
+    Ok(response)
+}
+
+#[get("/calendar/{calendar_id}")]
+async fn get_calendar_html(
+    app: Data<App>,
+    path: Path<(i64,)>,
+) -> Result<impl Responder, actix_web::Error> {
+    let (calendar_id,) = path.into_inner();
+
+    let calendar = app
+        .database
+        .get_calendar(calendar_id)
+        .await
+        .map_err(ErrorInternalServerError)?;
+
+    let context = json!({
+        "calendar": calendar,
+    });
+
+    let result = app
+        .templates
+        .render(
+            "calendar.html.j2",
+            &tera::Context::from_serialize(&context).map_err(ErrorInternalServerError)?,
+        )
+        .map_err(ErrorInternalServerError)?;
+
+    let mut builder = HttpResponse::Ok();
+    builder.insert_header(("Content-Type", "text/html; charset=utf-8"));
+    let response = builder.body(result);
+
+    Ok(response)
+}
+
+#[get("/calendar/new")]
+async fn new_calendar_html(app: Data<App>) -> Result<impl Responder, actix_web::Error> {
+    let context = json!({});
+
+    let result = app
+        .templates
+        .render(
+            "calendar.html.j2",
+            &tera::Context::from_serialize(&context).map_err(ErrorInternalServerError)?,
+        )
+        .map_err(ErrorInternalServerError)?;
+
+    let mut builder = HttpResponse::Ok();
+    builder.insert_header(("Content-Type", "text/html; charset=utf-8"));
+    let response = builder.body(result);
+
+    Ok(response)
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct UpdateCalendarForm {
+    pub name: String,
+    pub url: String,
+    pub user_name: Option<String>,
+    pub password: Option<String>,
+}
+
+#[post("/calendar/{calendar_id}/edit")]
+async fn edit_calendar_html(
+    app: Data<App>,
+    path: Path<(i64,)>,
+    data: Form<UpdateCalendarForm>,
+) -> Result<impl Responder, actix_web::Error> {
+    let (calendar_id,) = path.into_inner();
+
+    let existing_calendar = app
+        .database
+        .get_calendar(calendar_id)
+        .await
+        .map_err(ErrorInternalServerError)?
+        .ok_or_else(|| ErrorNotFound("No such calendar"))?;
+
+    let UpdateCalendarForm {
+        name,
+        url,
+        mut user_name,
+        mut password,
+    } = data.into_inner();
+
+    if user_name.as_deref() == Some("") {
+        user_name = None;
+    }
+    if password.as_deref() == Some("") {
+        password = None;
+    }
+
+    // Awful hack to keep password unchanged if left blank, but still using
+    // basic auth.
+    if password.is_none() && user_name.is_some() {
+        password = existing_calendar.password.clone();
+    }
+
+    app.database
+        .update_calendar(calendar_id, name, url, user_name, password)
+        .await
+        .map_err(ErrorInternalServerError)?;
+
+    let mut builder = HttpResponse::SeeOther();
+    builder.insert_header(("Location", format!("/calendar/{}?state=saved", calendar_id)));
+    let response = builder.finish();
+
+    Ok(response)
+}
+
+#[post("/calendar/new")]
+async fn add_new_calendar_html(
+    app: Data<App>,
+    data: Form<UpdateCalendarForm>,
+) -> Result<impl Responder, actix_web::Error> {
+    let UpdateCalendarForm {
+        name,
+        url,
+        mut user_name,
+        mut password,
+    } = data.into_inner();
+
+    if user_name.as_deref() == Some("") {
+        user_name = None;
+    }
+    if password.as_deref() == Some("") {
+        password = None;
+    }
+
+    let calendar_id = app
+        .database
+        .add_calendar(
+            1, // FIXME
+            name, url, user_name, password,
+        )
+        .await
+        .map_err(ErrorInternalServerError)?;
+
+    // TODO: Trigger calendar update.
+
+    let mut builder = HttpResponse::SeeOther();
+    builder.insert_header(("Location", format!("/calendar/{}?state=saved", calendar_id)));
     let response = builder.finish();
 
     Ok(response)
@@ -299,13 +559,18 @@ pub async fn run_server(app: App) -> Result<(), Error> {
             .wrap(TracingLogger)
             .wrap(Logger::default())
             .service(index)
-            .service(next_reminders)
-            .service(list_events)
-            .service(get_event)
             .service(list_events_html)
+            .service(list_events_calendar_html)
+            .service(new_reminder_html)
+            .service(get_reminder_html)
             .service(get_event_html)
             .service(delete_reminder_html)
-            .service(update_reminder_html)
+            .service(upsert_reminder_html)
+            .service(list_calendars_html)
+            .service(new_calendar_html)
+            .service(add_new_calendar_html)
+            .service(get_calendar_html)
+            .service(edit_calendar_html)
     })
     .bind(&bind_addr)?
     .run()

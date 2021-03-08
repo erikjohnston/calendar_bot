@@ -104,6 +104,7 @@ pub async fn fetch_calendars(
 
 /// Parse the calendars into events and event instances.
 pub fn parse_calendars_to_events(
+    calendar_id: i64,
     calendars: &[VCalendar],
 ) -> Result<(Vec<Event<'_>>, Vec<EventInstance<'_>>), Error> {
     let now = Utc::now();
@@ -116,6 +117,7 @@ pub fn parse_calendars_to_events(
             }
 
             events.push(Event {
+                calendar_id,
                 event_id: uid.into(),
                 summary: event.base_event.summary.as_deref().map(Cow::from),
                 description: event.base_event.description.as_deref().map(Cow::from),
