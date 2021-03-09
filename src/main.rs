@@ -14,6 +14,7 @@ use clap::{crate_authors, crate_description, crate_name, crate_version, value_t_
 use config::Config;
 
 mod app;
+mod auth;
 mod calendar;
 mod config;
 mod database;

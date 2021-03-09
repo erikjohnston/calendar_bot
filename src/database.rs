@@ -26,6 +26,7 @@ pub struct Attendee {
 /// The URL and credentials of a calendar.
 #[derive(Debug, Clone, Serialize)]
 pub struct Calendar {
+    pub user_id: i64,
     pub calendar_id: i64,
     pub name: String,
     pub url: String,
@@ -93,13 +94,14 @@ impl Database {
 
         let rows = db_conn
             .query(
-                "SELECT calendar_id, name, url, user_name, password FROM calendars",
+                "SELECT user_id, calendar_id, name, url, user_name, password FROM calendars",
                 &[],
             )
             .await?;
 
         let mut calendars = Vec::with_capacity(rows.len());
         for row in rows {
+            let user_id = row.try_get("user_id")?;
             let calendar_id = row.try_get("calendar_id")?;
             let name = row.try_get("name")?;
             let url = row.try_get("url")?;
@@ -107,6 +109,7 @@ impl Database {
             let password = row.try_get("password")?;
 
             calendars.push(Calendar {
+                user_id,
                 calendar_id,
                 name,
                 url,
@@ -140,6 +143,7 @@ impl Database {
             let password = row.try_get("password")?;
 
             calendars.push(Calendar {
+                user_id,
                 calendar_id,
                 name,
                 url,
@@ -157,7 +161,7 @@ impl Database {
         let row = db_conn
             .query_opt(
                 r#"
-                    SELECT calendar_id, name, url, user_name, password FROM calendars
+                    SELECT user_id, calendar_id, name, url, user_name, password FROM calendars
                     WHERE calendar_id = $1
                 "#,
                 &[&calendar_id],
@@ -165,6 +169,7 @@ impl Database {
             .await?;
 
         if let Some(row) = row {
+            let user_id = row.try_get("user_id")?;
             let calendar_id = row.try_get("calendar_id")?;
             let name = row.try_get("name")?;
             let url = row.try_get("url")?;
@@ -172,6 +177,7 @@ impl Database {
             let password = row.try_get("password")?;
 
             Ok(Some(Calendar {
+                user_id,
                 calendar_id,
                 name,
                 url,
@@ -201,6 +207,22 @@ impl Database {
                     WHERE calendar_id = $1
                 "#,
                 &[&calendar_id, &name, &url, &user_name, &password],
+            )
+            .await?;
+
+        Ok(())
+    }
+
+    pub async fn delete_calendar(&self, calendar_id: i64) -> Result<(), Error> {
+        let db_conn = self.db_pool.get().await?;
+
+        db_conn
+            .execute(
+                r#"
+                    DELETE FROM calendars
+                    WHERE calendar_id = $1
+                "#,
+                &[&calendar_id],
             )
             .await?;
 
@@ -319,6 +341,7 @@ impl Database {
 
     pub async fn update_reminder(
         &self,
+        calendar_id: i64,
         reminder_id: i64,
         room_id: &'_ str,
         minutes_before: i64,
@@ -331,25 +354,35 @@ impl Database {
                 r#"
                     UPDATE reminders
                     SET room_id = $1, minutes_before = $2, template = $3
-                    WHERE reminder_id = $4
+                    WHERE calendar_id = $4 AND reminder_id = $5
             "#,
-                &[&room_id, &minutes_before, &template, &reminder_id],
+                &[
+                    &room_id,
+                    &minutes_before,
+                    &template,
+                    &calendar_id,
+                    &reminder_id,
+                ],
             )
             .await?;
 
         Ok(())
     }
 
-    pub async fn delete_reminder(&self, reminder_id: i64) -> Result<(), Error> {
+    pub async fn delete_reminder_in_calendar(
+        &self,
+        calendar_id: i64,
+        reminder_id: i64,
+    ) -> Result<(), Error> {
         let db_conn = self.db_pool.get().await?;
 
         db_conn
             .execute(
                 r#"
                     DELETE FROM reminders
-                    WHERE reminder_id = $1
+                    WHERE calendar_id = $1 AND reminder_id = $2
             "#,
-                &[&reminder_id],
+                &[&calendar_id, &reminder_id],
             )
             .await?;
 
@@ -659,7 +692,11 @@ impl Database {
     }
 
     /// Get a reminder for event
-    pub async fn get_reminder(&self, reminder_id: i64) -> Result<Option<Reminder>, Error> {
+    pub async fn get_reminder_in_calendar(
+        &self,
+        calendar_id: i64,
+        reminder_id: i64,
+    ) -> Result<Option<Reminder>, Error> {
         let db_conn = self.db_pool.get().await?;
 
         let row = db_conn
@@ -667,9 +704,9 @@ impl Database {
                 r#"
                         SELECT calendar_id, event_id, reminder_id, room_id, minutes_before, template
                         FROM reminders
-                        WHERE reminder_id = $1
+                        WHERE calendar_id = $1 AND reminder_id = $2
                     "#,
-                &[&reminder_id],
+                &[&calendar_id, &reminder_id],
             )
             .await?;
 
@@ -712,5 +749,69 @@ impl Database {
             .collect();
 
         Ok(mapping)
+    }
+
+    pub async fn check_password(
+        &self,
+        matrix_id: &str,
+        password: &str,
+    ) -> Result<Option<i64>, Error> {
+        let db_conn = self.db_pool.get().await?;
+
+        let row = db_conn
+            .query_opt(
+                "SELECT user_id, password_hash FROM users WHERE matrix_id = $1",
+                &[&matrix_id],
+            )
+            .await?;
+
+        let (user_id, hash) = if let Some(row) = row {
+            let user_id: i64 = row.try_get(0)?;
+            let hash: String = row.try_get(1)?;
+            (user_id, hash)
+        } else {
+            return Ok(None);
+        };
+
+        if bcrypt::verify(password, &hash)? {
+            Ok(Some(user_id))
+        } else {
+            Ok(None)
+        }
+    }
+
+    pub async fn add_access_token(
+        &self,
+        user_id: i64,
+        token: &str,
+        expiry: DateTime<Utc>,
+    ) -> Result<(), Error> {
+        let db_conn = self.db_pool.get().await?;
+
+        db_conn
+            .execute(
+                "INSERT INTO access_tokens (user_id, token, expiry) VALUES ($1, $2, $3)",
+                &[&user_id, &token, &expiry],
+            )
+            .await?;
+
+        Ok(())
+    }
+
+    pub async fn get_user_from_token(&self, token: &str) -> Result<Option<i64>, Error> {
+        let db_conn = self.db_pool.get().await?;
+
+        let row = db_conn
+            .query_opt(
+                "SELECT user_id FROM access_tokens WHERE token = $1 AND expiry > NOW()",
+                &[&token],
+            )
+            .await?;
+
+        if let Some(row) = row {
+            Ok(Some(row.try_get(0)?))
+        } else {
+            Ok(None)
+        }
     }
 }

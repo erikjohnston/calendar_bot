@@ -3,6 +3,36 @@
 <meta charset="utf-8">
 <style>
     {% include "base.css" %}
+
+
+    #login-box {
+        border: 3px solid #a000a0;
+
+        padding: 20px 50px;
+        margin: 10px;
+        border-radius: 10px;
+
+        width: fit-content;
+        height: fit-content;
+
+        margin: auto;
+    }
+
+    #header {
+        font-weight: bolder;
+        font-size: 50px;
+        color: #490549;
+        border-bottom: 3px solid #5e075e;
+        margin-bottom: 30px;
+    }
+
+    #login-box input {
+        margin: 5px;
+    }
+
+    input {
+        font-size: large;
+    }
 </style>
 
 <script>
@@ -11,13 +41,17 @@
 </script>
 
 <body>
-    {% include "sidebar.html" %}
-
-    <div id="content">
-
-        {# TODO #}
-
+    <div id="login-box">
+        <div id="header">C a l B O T</div>
+        <div>
+            <form action="/login" method="post">
+                <input type="text" placeholder="Username" name="user_name" /></br />
+                <input type="password" placeholder="Password" name="password" /><br />
+                <input type="submit" value="Login" />
+            </form>
+        </div>
     </div>
+
 </body>
 
 </html>

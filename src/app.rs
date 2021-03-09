@@ -7,12 +7,12 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use crate::DEFAULT_TEMPLATE;
 use crate::{
     calendar::{fetch_calendars, parse_calendars_to_events},
     database::ReminderInstance,
 };
 use crate::{config::Config, database::Database};
+use crate::{database::Calendar, DEFAULT_TEMPLATE};
 
 use anyhow::{bail, Context, Error};
 
@@ -103,20 +103,33 @@ impl App {
         let db_calendars = self.database.get_calendars().await?;
 
         for db_calendar in db_calendars {
-            let calendars = fetch_calendars(
-                &self.http_client,
-                &db_calendar.url,
-                db_calendar.user_name.as_deref(),
-                db_calendar.password.as_deref(),
-            )
-            .await?;
-
-            let (events, next_dates) =
-                parse_calendars_to_events(db_calendar.calendar_id, &calendars)?;
-            self.database
-                .insert_events(db_calendar.calendar_id, events, next_dates)
-                .await?;
+            let calendar_id = db_calendar.calendar_id;
+            if let Err(error) = self.update_calendar(db_calendar).await {
+                error!(
+                    error = error.deref() as &dyn StdError,
+                    calendar_id, "Failed to update calendar"
+                );
+            }
         }
+
+        Ok(())
+    }
+
+    #[instrument(skip(self))]
+    pub async fn update_calendar(&self, db_calendar: Calendar) -> Result<(), Error> {
+        let calendars = fetch_calendars(
+            &self.http_client,
+            &db_calendar.url,
+            db_calendar.user_name.as_deref(),
+            db_calendar.password.as_deref(),
+        )
+        .await?;
+
+        let (events, next_dates) = parse_calendars_to_events(db_calendar.calendar_id, &calendars)?;
+
+        self.database
+            .insert_events(db_calendar.calendar_id, events, next_dates)
+            .await?;
 
         self.update_reminders().await?;
 
@@ -125,7 +138,7 @@ impl App {
 
     /// Queries the DB and updates the reminders
     #[instrument(skip(self))]
-    async fn update_reminders(&self) -> Result<(), Error> {
+    pub async fn update_reminders(&self) -> Result<(), Error> {
         let reminders = self.database.get_next_reminders().await?;
 
         info!(num = reminders.len(), "Updated reminders");

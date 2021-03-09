@@ -48,30 +48,6 @@
 
         </div>
 
-
-{#
-        <div id="reminder-info">
-            <h3>Reminder</h3>
-            {% if form_state == "saved" %}
-            Saved
-            {% elif form_state == "deleted" %}
-            Deleted
-            {% endif %}
-            <form action="/event/{{ calendar_id }}/{{ event.event_id }}/reminder" method="post">
-                {% if reminder %}<input type="hidden" value="{{ reminder.reminder_id }}" />{% endif %}
-                <p>Minutes Before: <input type="number" name="minutes_before" value={{ reminder.minutes_before | default(value=30) }} /></p>
-                <p>Room: <input type="text" name="room_id" placeholder="#room:example.com" {% if reminder %} value="{{ reminder.room_id }}" {% endif %} /></p>
-
-                <p>Template: <label for="default-template">Default Template</label><input type="checkbox" name="use_default" onclick="on_default_template_clicked()" id="default-template" {% if not reminder or not reminder.template %} checked {% endif %} /></p>
-                <textarea name="template" id="reminder-template">{{ reminder.template | default(value=default_template) | safe }}</textarea>
-                {% if reminder %}
-                <p><input type="submit" value="Update" /> <input type="submit" value="Delete" formaction="/event/{{ calendar_id }}/{{ event.event_id }}/delete_reminder" /></p>
-                {% else %}
-                <p><input type="submit" value="Add"/></p>
-                {% endif %}
-            </form>
-        </div> #}
-
     </div>
 </body>
 

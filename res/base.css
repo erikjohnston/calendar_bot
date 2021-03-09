@@ -109,3 +109,13 @@ blockquote {
 h3 a {
     text-decoration: none;
 }
+
+
+a {
+    color: #33075E;
+}
+
+#sidebar a {
+    text-decoration: none;
+    color: white;
+}

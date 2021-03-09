@@ -48,11 +48,24 @@ CREATE TABLE reminders (
 
 CREATE TABLE users (
     user_id BIGSERIAL PRIMARY KEY,
+    password_hash TEXT,
     matrix_id TEXT NOT NULL
 );
+
+CREATE UNIQUE INDEX ON users(matrix_id);
 
 
 CREATE TABLE email_to_matrix_id (
     email TEXT PRIMARY KEY,
     matrix_id TEXT NOT NULL
 );
+
+
+CREATE TABLE access_tokens (
+    access_token_id BIGSERIAL PRIMARY KEY,
+    user_id BIGINT NOT NULL,
+    token TEXT NOT NULL,
+    expiry TIMESTAMP WITH TIME ZONE NOT NULL
+);
+
+CREATE UNIQUE INDEX ON access_tokens (token);

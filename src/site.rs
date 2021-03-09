@@ -1,7 +1,8 @@
 //! The web site for the app.
 
 use actix_web::{
-    error::{ErrorInternalServerError, ErrorNotFound},
+    cookie::{Cookie, SameSite},
+    error::{ErrorForbidden, ErrorInternalServerError, ErrorNotFound},
     get,
     middleware::Logger,
     post,
@@ -9,13 +10,16 @@ use actix_web::{
     HttpResponse, HttpServer, Responder,
 };
 use anyhow::Error;
+use chrono::{Duration, Utc};
 use itertools::Itertools;
+use rand::{distributions::Alphanumeric, Rng};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tracing::info;
 use tracing_actix_web::TracingLogger;
 
 use crate::app::App;
+use crate::auth::AuthedUser;
 
 /// The index page
 #[get("/")]
@@ -24,13 +28,33 @@ async fn index() -> impl Responder {
     "Hello!"
 }
 
+async fn assert_user_owns_calendar(
+    app: &App,
+    auth_user: AuthedUser,
+    calendar_id: i64,
+) -> Result<(), actix_web::Error> {
+    let calendar = app
+        .database
+        .get_calendar(calendar_id)
+        .await
+        .map_err(ErrorInternalServerError)?;
+
+    match calendar {
+        Some(cal) if cal.user_id == *auth_user => Ok(()),
+        _ => Err(ErrorForbidden("forbidden")),
+    }
+}
+
 /// List all events in a calendar
 #[get("/events/{calendar_id}")]
 async fn list_events_calendar_html(
     app: Data<App>,
     path: Path<(i64,)>,
+    user: AuthedUser,
 ) -> Result<impl Responder, actix_web::Error> {
     let (calendar_id,) = path.into_inner();
+
+    assert_user_owns_calendar(&app, user, calendar_id).await?;
 
     let events = app
         .database
@@ -68,10 +92,13 @@ async fn list_events_calendar_html(
 }
 
 #[get("/events")]
-async fn list_events_html(app: Data<App>) -> Result<impl Responder, actix_web::Error> {
+async fn list_events_html(
+    app: Data<App>,
+    user: AuthedUser,
+) -> Result<impl Responder, actix_web::Error> {
     let events = app
         .database
-        .get_events_for_user(1) // FIXME
+        .get_events_for_user(*user)
         .await
         .map_err(ErrorInternalServerError)?;
 
@@ -104,10 +131,13 @@ async fn list_events_html(app: Data<App>) -> Result<impl Responder, actix_web::E
 }
 
 #[get("/calendars")]
-async fn list_calendars_html(app: Data<App>) -> Result<impl Responder, actix_web::Error> {
+async fn list_calendars_html(
+    app: Data<App>,
+    user: AuthedUser,
+) -> Result<impl Responder, actix_web::Error> {
     let calendars = app
         .database
-        .get_calendars_for_user(1) // FIXME
+        .get_calendars_for_user(*user)
         .await
         .map_err(ErrorInternalServerError)?;
 
@@ -140,8 +170,11 @@ async fn new_reminder_html(
     app: Data<App>,
     path: Path<(i64, String)>,
     query: Query<EventFormState>,
+    user: AuthedUser,
 ) -> Result<impl Responder, actix_web::Error> {
     let (calendar_id, event_id) = path.into_inner();
+
+    assert_user_owns_calendar(&app, user, calendar_id).await?;
 
     let state = match query.into_inner().state.as_deref() {
         Some("saved") => Some("saved"),
@@ -194,8 +227,11 @@ async fn get_reminder_html(
     app: Data<App>,
     path: Path<(i64, String, i64)>,
     query: Query<EventFormState>,
+    user: AuthedUser,
 ) -> Result<impl Responder, actix_web::Error> {
     let (calendar_id, event_id, reminder_id) = path.into_inner();
+
+    assert_user_owns_calendar(&app, user, calendar_id).await?;
 
     let state = match query.into_inner().state.as_deref() {
         Some("saved") => Some("saved"),
@@ -217,7 +253,7 @@ async fn get_reminder_html(
 
     let reminder = app
         .database
-        .get_reminder(reminder_id)
+        .get_reminder_in_calendar(calendar_id, reminder_id)
         .await
         .map_err(ErrorInternalServerError)?;
 
@@ -261,8 +297,11 @@ async fn get_event_html(
     app: Data<App>,
     path: Path<(i64, String)>,
     query: Query<EventFormState>,
+    user: AuthedUser,
 ) -> Result<impl Responder, actix_web::Error> {
     let (calendar_id, event_id) = path.into_inner();
+
+    assert_user_owns_calendar(&app, user, calendar_id).await?;
 
     let state = match query.into_inner().state.as_deref() {
         Some("saved") => Some("saved"),
@@ -322,12 +361,15 @@ async fn delete_reminder_html(
     app: Data<App>,
     path: Path<(i64, String)>,
     data: Form<UpdateReminderForm>,
+    user: AuthedUser,
 ) -> Result<impl Responder, actix_web::Error> {
     let (calendar_id, event_id) = path.into_inner();
 
+    assert_user_owns_calendar(&app, user, calendar_id).await?;
+
     if let Some(reminder_id) = data.reminder_id {
         app.database
-            .delete_reminder(reminder_id)
+            .delete_reminder_in_calendar(calendar_id, reminder_id)
             .await
             .map_err(ErrorInternalServerError)?;
     } else {
@@ -358,8 +400,11 @@ async fn upsert_reminder_html(
     app: Data<App>,
     path: Path<(i64, String)>,
     data: Form<UpdateReminderForm>,
+    user: AuthedUser,
 ) -> Result<impl Responder, actix_web::Error> {
     let (calendar_id, event_id) = path.into_inner();
+
+    assert_user_owns_calendar(&app, user, calendar_id).await?;
 
     let data = data.into_inner();
 
@@ -371,15 +416,19 @@ async fn upsert_reminder_html(
 
     if let Some(reminder_id) = data.reminder_id {
         app.database
-            .update_reminder(reminder_id, &data.room_id, data.minutes_before, template)
+            .update_reminder(
+                calendar_id,
+                reminder_id,
+                &data.room_id,
+                data.minutes_before,
+                template,
+            )
             .await
             .map_err(ErrorInternalServerError)?;
-
-        // TODO: Reload reminders
     } else {
         app.database
             .add_reminder(
-                1, // FIXME
+                *user,
                 calendar_id,
                 &event_id,
                 &data.room_id,
@@ -389,6 +438,10 @@ async fn upsert_reminder_html(
             .await
             .map_err(ErrorInternalServerError)?;
     }
+
+    app.update_reminders()
+        .await
+        .map_err(ErrorInternalServerError)?;
 
     let mut builder = HttpResponse::SeeOther();
     builder.insert_header((
@@ -404,8 +457,10 @@ async fn upsert_reminder_html(
 async fn get_calendar_html(
     app: Data<App>,
     path: Path<(i64,)>,
+    user: AuthedUser,
 ) -> Result<impl Responder, actix_web::Error> {
     let (calendar_id,) = path.into_inner();
+    assert_user_owns_calendar(&app, user, calendar_id).await?;
 
     let calendar = app
         .database
@@ -433,7 +488,10 @@ async fn get_calendar_html(
 }
 
 #[get("/calendar/new")]
-async fn new_calendar_html(app: Data<App>) -> Result<impl Responder, actix_web::Error> {
+async fn new_calendar_html(
+    app: Data<App>,
+    _user: AuthedUser,
+) -> Result<impl Responder, actix_web::Error> {
     let context = json!({});
 
     let result = app
@@ -464,8 +522,11 @@ async fn edit_calendar_html(
     app: Data<App>,
     path: Path<(i64,)>,
     data: Form<UpdateCalendarForm>,
+    user: AuthedUser,
 ) -> Result<impl Responder, actix_web::Error> {
     let (calendar_id,) = path.into_inner();
+
+    assert_user_owns_calendar(&app, user, calendar_id).await?;
 
     let existing_calendar = app
         .database
@@ -499,8 +560,41 @@ async fn edit_calendar_html(
         .await
         .map_err(ErrorInternalServerError)?;
 
+    let new_calendar = app
+        .database
+        .get_calendar(calendar_id)
+        .await
+        .map_err(ErrorInternalServerError)?
+        .ok_or_else(|| ErrorNotFound("No such calendar"))?;
+
+    app.update_calendar(new_calendar)
+        .await
+        .map_err(ErrorInternalServerError)?;
+
     let mut builder = HttpResponse::SeeOther();
     builder.insert_header(("Location", format!("/calendar/{}?state=saved", calendar_id)));
+    let response = builder.finish();
+
+    Ok(response)
+}
+
+#[post("/calendar/{calendar_id}/delete")]
+async fn delete_calendar_html(
+    app: Data<App>,
+    path: Path<(i64,)>,
+    user: AuthedUser,
+) -> Result<impl Responder, actix_web::Error> {
+    let (calendar_id,) = path.into_inner();
+
+    assert_user_owns_calendar(&app, user, calendar_id).await?;
+
+    app.database
+        .delete_calendar(calendar_id)
+        .await
+        .map_err(ErrorInternalServerError)?;
+
+    let mut builder = HttpResponse::SeeOther();
+    builder.insert_header(("Location", "/calendars"));
     let response = builder.finish();
 
     Ok(response)
@@ -510,6 +604,7 @@ async fn edit_calendar_html(
 async fn add_new_calendar_html(
     app: Data<App>,
     data: Form<UpdateCalendarForm>,
+    user: AuthedUser,
 ) -> Result<impl Responder, actix_web::Error> {
     let UpdateCalendarForm {
         name,
@@ -527,18 +622,91 @@ async fn add_new_calendar_html(
 
     let calendar_id = app
         .database
-        .add_calendar(
-            1, // FIXME
-            name, url, user_name, password,
-        )
+        .add_calendar(*user, name, url, user_name, password)
         .await
         .map_err(ErrorInternalServerError)?;
 
-    // TODO: Trigger calendar update.
+    let new_calendar = app
+        .database
+        .get_calendar(calendar_id)
+        .await
+        .map_err(ErrorInternalServerError)?
+        .ok_or_else(|| ErrorNotFound("No such calendar"))?;
+
+    app.update_calendar(new_calendar)
+        .await
+        .map_err(ErrorInternalServerError)?;
 
     let mut builder = HttpResponse::SeeOther();
     builder.insert_header(("Location", format!("/calendar/{}?state=saved", calendar_id)));
     let response = builder.finish();
+
+    Ok(response)
+}
+
+#[get("/login")]
+async fn login_get_html(app: Data<App>) -> Result<impl Responder, actix_web::Error> {
+    let context = json!({});
+
+    let result = app
+        .templates
+        .render(
+            "login.html.j2",
+            &tera::Context::from_serialize(&context).map_err(ErrorInternalServerError)?,
+        )
+        .map_err(ErrorInternalServerError)?;
+
+    let mut builder = HttpResponse::Ok();
+    builder.insert_header(("Content-Type", "text/html; charset=utf-8"));
+    let response = builder.body(result);
+
+    Ok(response)
+}
+
+#[derive(Debug, Deserialize, Clone)]
+struct LoginForm {
+    user_name: String,
+    password: String,
+}
+
+#[post("/login")]
+async fn login_post_html(
+    app: Data<App>,
+    data: Form<LoginForm>,
+) -> Result<impl Responder, actix_web::Error> {
+    let user_id = app
+        .database
+        .check_password(&data.user_name, &data.password)
+        .await
+        .map_err(ErrorInternalServerError)?;
+
+    let response = if let Some(user_id) = user_id {
+        let token: String = rand::thread_rng()
+            .sample_iter(Alphanumeric)
+            .take(16)
+            .map(char::from)
+            .collect();
+
+        app.database
+            .add_access_token(user_id, &token, Utc::now() + Duration::days(7))
+            .await
+            .map_err(ErrorInternalServerError)?;
+
+        let cookie = Cookie::build("token", token)
+            .same_site(SameSite::Strict)
+            .max_age(time::Duration::days(7))
+            .http_only(true)
+            .finish();
+
+        HttpResponse::SeeOther()
+            .insert_header(("Location", "/calendars"))
+            .cookie(cookie)
+            .finish()
+    } else {
+        HttpResponse::SeeOther()
+            .insert_header(("Location", "/login?state=invalid_password"))
+            .finish()
+    };
 
     Ok(response)
 }
@@ -571,6 +739,9 @@ pub async fn run_server(app: App) -> Result<(), Error> {
             .service(add_new_calendar_html)
             .service(get_calendar_html)
             .service(edit_calendar_html)
+            .service(delete_calendar_html)
+            .service(login_get_html)
+            .service(login_post_html)
     })
     .bind(&bind_addr)?
     .run()
