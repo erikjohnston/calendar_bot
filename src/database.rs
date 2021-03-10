@@ -1,9 +1,6 @@
 //! Module for talking to the database
 
-use std::{
-    borrow::Cow,
-    collections::{BTreeMap, VecDeque},
-};
+use std::collections::{BTreeMap, VecDeque};
 
 use anyhow::Error;
 use chrono::{DateTime, Duration, FixedOffset, Utc};
@@ -36,18 +33,19 @@ pub struct Calendar {
 
 /// Basic info for an event.
 #[derive(Debug, Clone)]
-pub struct Event<'a> {
+pub struct Event {
     pub calendar_id: i64,
-    pub event_id: Cow<'a, str>,
-    pub summary: Option<Cow<'a, str>>,
-    pub description: Option<Cow<'a, str>>,
-    pub location: Option<Cow<'a, str>>,
+    pub event_id: String,
+    pub summary: Option<String>,
+    pub description: Option<String>,
+    pub location: Option<String>,
+    pub attendees: Vec<Attendee>,
 }
 
 /// A particular instance of an event, with date/time and attendees.
 #[derive(Debug, Clone)]
-pub struct EventInstance<'a> {
-    pub event_id: Cow<'a, str>,
+pub struct EventInstance {
+    pub event_id: String,
     pub date: DateTime<FixedOffset>,
     pub attendees: Vec<Attendee>,
 }
@@ -260,8 +258,8 @@ impl Database {
     pub async fn insert_events(
         &self,
         calendar_id: i64,
-        events: Vec<Event<'_>>,
-        instances: Vec<EventInstance<'_>>,
+        events: Vec<Event>,
+        instances: Vec<EventInstance>,
     ) -> Result<(), Error> {
         let mut db_conn = self.db_pool.get().await?;
         let txn = db_conn.transaction().await?;
@@ -269,13 +267,14 @@ impl Database {
         futures::future::try_join_all(events.iter().map(|event| {
             txn.execute_raw(
                 r#"
-                INSERT INTO events (calendar_id, event_id, summary, description, location)
-                VALUES ($1, $2, $3, $4, $5)
+                INSERT INTO events (calendar_id, event_id, summary, description, location, attendees)
+                VALUES ($1, $2, $3, $4, $5, $6)
                 ON CONFLICT (calendar_id, event_id)
                 DO UPDATE SET
                     summary = EXCLUDED.summary,
                     description = EXCLUDED.description,
-                    location = EXCLUDED.location
+                    location = EXCLUDED.location,
+                    attendees = EXCLUDED.attendees
             "#,
                 vec![
                     &calendar_id as &dyn ToSql,
@@ -283,6 +282,7 @@ impl Database {
                     &event.summary,
                     &event.description,
                     &event.location,
+                    &event.attendees,
                 ],
             )
         }))
@@ -398,10 +398,10 @@ impl Database {
         let rows = db_conn
             .query(
                 r#"
-                    SELECT event_id, summary, description, location, timestamp, room_id, minutes_before, template, attendees
+                    SELECT event_id, summary, description, location, timestamp, room_id, minutes_before, template, i.attendees
                     FROM reminders
                     INNER JOIN events USING (calendar_id, event_id)
-                    INNER JOIN next_dates USING (calendar_id, event_id)
+                    INNER JOIN next_dates AS i USING (calendar_id, event_id)
                     ORDER BY timestamp
                 "#,
                 &[],
@@ -451,15 +451,16 @@ impl Database {
     pub async fn get_events_in_calendar(
         &self,
         calendar_id: i64,
-    ) -> Result<Vec<(Event<'static>, Vec<EventInstance<'static>>)>, Error> {
+    ) -> Result<Vec<(Event, Vec<EventInstance>)>, Error> {
         let db_conn = self.db_pool.get().await?;
 
         let rows = db_conn
             .query(
                 r#"
-                    SELECT DISTINCT ON (event_id) event_id, summary, description, location, timestamp, attendees
-                    FROM events
-                    INNER JOIN next_dates USING (calendar_id, event_id)
+                    SELECT DISTINCT ON (event_id) event_id, summary, description, location, timestamp,
+                        e.attendees AS event_attendees, i.attendees AS instance_attendees
+                    FROM events AS e
+                    INNER JOIN next_dates AS i USING (calendar_id, event_id)
                     WHERE calendar_id = $1
                     ORDER BY event_id, timestamp
                 "#,
@@ -467,16 +468,16 @@ impl Database {
             )
             .await?;
 
-        let mut events: Vec<(Event<'static>, Vec<EventInstance<'static>>)> =
-            Vec::with_capacity(rows.len());
+        let mut events: Vec<(Event, Vec<EventInstance>)> = Vec::with_capacity(rows.len());
 
         for row in rows {
             let event_id: String = row.try_get("event_id")?;
-            let summary: Option<String> = row.try_get("summary")?;
-            let description: Option<String> = row.try_get("description")?;
-            let location: Option<String> = row.try_get("location")?;
-            let date: DateTime<FixedOffset> = row.try_get("timestamp")?;
-            let attendees: Vec<Attendee> = row.try_get("attendees")?;
+            let summary = row.try_get("summary")?;
+            let description = row.try_get("description")?;
+            let location = row.try_get("location")?;
+            let date = row.try_get("timestamp")?;
+            let instance_attendees = row.try_get("instance_attendees")?;
+            let event_attendees = row.try_get("event_attendees")?;
 
             if date < Utc::now() {
                 // ignore events in the past
@@ -484,9 +485,9 @@ impl Database {
             }
 
             let instance = EventInstance {
-                event_id: event_id.clone().into(),
+                event_id: event_id.clone(),
                 date,
-                attendees,
+                attendees: instance_attendees,
             };
 
             if let Some((event, instances)) = events.last_mut() {
@@ -498,10 +499,11 @@ impl Database {
 
             let event = Event {
                 calendar_id,
-                event_id: event_id.clone().into(),
-                summary: summary.map(Cow::from),
-                description: description.map(Cow::from),
-                location: location.map(Cow::from),
+                event_id,
+                summary,
+                description,
+                location,
+                attendees: event_attendees,
             };
             events.push((event, vec![instance]));
         }
@@ -514,16 +516,17 @@ impl Database {
     pub async fn get_events_for_user(
         &self,
         user_id: i64,
-    ) -> Result<Vec<(Event<'static>, Vec<EventInstance<'static>>)>, Error> {
+    ) -> Result<Vec<(Event, Vec<EventInstance>)>, Error> {
         let db_conn = self.db_pool.get().await?;
 
         let rows = db_conn
             .query(
                 r#"
-                    SELECT DISTINCT ON (calendar_id, event_id) calendar_id, event_id, summary, description, location, timestamp, attendees
+                    SELECT DISTINCT ON (calendar_id, event_id) calendar_id, event_id, summary, description, location, timestamp,
+                        e.attendees AS event_attendees, i.attendees AS instance_attendees
                     FROM calendars
-                    INNER JOIN events USING (calendar_id)
-                    INNER JOIN next_dates USING (calendar_id, event_id)
+                    INNER JOIN events AS e USING (calendar_id)
+                    INNER JOIN next_dates AS i USING (calendar_id, event_id)
                     WHERE user_id = $1
                     ORDER BY calendar_id, event_id, timestamp
                 "#,
@@ -531,17 +534,17 @@ impl Database {
             )
             .await?;
 
-        let mut events: Vec<(Event<'static>, Vec<EventInstance<'static>>)> =
-            Vec::with_capacity(rows.len());
+        let mut events: Vec<(Event, Vec<EventInstance>)> = Vec::with_capacity(rows.len());
 
         for row in rows {
-            let calendar_id: i64 = row.try_get("calendar_id")?;
+            let calendar_id = row.try_get("calendar_id")?;
             let event_id: String = row.try_get("event_id")?;
-            let summary: Option<String> = row.try_get("summary")?;
-            let description: Option<String> = row.try_get("description")?;
-            let location: Option<String> = row.try_get("location")?;
-            let date: DateTime<FixedOffset> = row.try_get("timestamp")?;
-            let attendees: Vec<Attendee> = row.try_get("attendees")?;
+            let summary = row.try_get("summary")?;
+            let description = row.try_get("description")?;
+            let location = row.try_get("location")?;
+            let date = row.try_get("timestamp")?;
+            let instance_attendees = row.try_get("instance_attendees")?;
+            let event_attendees = row.try_get("event_attendees")?;
 
             if date < Utc::now() {
                 // ignore events in the past
@@ -549,9 +552,9 @@ impl Database {
             }
 
             let instance = EventInstance {
-                event_id: event_id.clone().into(),
+                event_id: event_id.clone(),
                 date,
-                attendees,
+                attendees: instance_attendees,
             };
 
             if let Some((event, instances)) = events.last_mut() {
@@ -563,10 +566,11 @@ impl Database {
 
             let event = Event {
                 calendar_id,
-                event_id: event_id.clone().into(),
-                summary: summary.map(Cow::from),
-                description: description.map(Cow::from),
-                location: location.map(Cow::from),
+                event_id,
+                summary,
+                description,
+                location,
+                attendees: event_attendees,
             };
             events.push((event, vec![instance]));
         }
@@ -581,13 +585,14 @@ impl Database {
         &self,
         calendar_id: i64,
         event_id: &str,
-    ) -> Result<Option<(Event<'static>, Vec<EventInstance<'static>>)>, Error> {
+    ) -> Result<Option<(Event, Vec<EventInstance>)>, Error> {
         let db_conn = self.db_pool.get().await?;
 
         let row = db_conn
             .query_opt(
                 r#"
-                    SELECT DISTINCT ON (event_id) event_id, summary, description, location
+                    SELECT DISTINCT ON (event_id) event_id, summary, description, location,
+                        attendees
                     FROM events
                     WHERE calendar_id = $1 AND event_id = $2
                 "#,
@@ -601,17 +606,19 @@ impl Database {
             return Ok(None);
         };
 
-        let event_id: String = row.get(0);
-        let summary: Option<String> = row.get(1);
-        let description: Option<String> = row.get(2);
-        let location: Option<String> = row.get(3);
+        let event_id: String = row.try_get("event_id")?;
+        let summary = row.try_get("summary")?;
+        let description = row.try_get("description")?;
+        let location = row.try_get("location")?;
+        let attendees = row.try_get("attendees")?;
 
         let event = Event {
             calendar_id,
-            event_id: event_id.clone().into(),
-            summary: summary.map(Cow::from),
-            description: description.map(Cow::from),
-            location: location.map(Cow::from),
+            event_id: event_id.clone(),
+            summary,
+            description,
+            location,
+            attendees,
         };
 
         let mut instances = Vec::new();
@@ -629,8 +636,8 @@ impl Database {
             .await?;
 
         for row in rows {
-            let date: DateTime<FixedOffset> = row.get(0);
-            let attendees: Vec<Attendee> = row.get(1);
+            let date: DateTime<FixedOffset> = row.get("timestamp");
+            let attendees: Vec<Attendee> = row.get("attendees");
 
             if date < Utc::now() {
                 // ignore events in the past
@@ -638,7 +645,7 @@ impl Database {
             }
 
             let instance = EventInstance {
-                event_id: event_id.clone().into(),
+                event_id: event_id.clone(),
                 date,
                 attendees,
             };

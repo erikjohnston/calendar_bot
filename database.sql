@@ -13,7 +13,8 @@ CREATE TABLE events (
     event_id text NOT NULL,
     summary text,
     description text,
-    location text
+    location text,
+    attendees "Attendee"[] NOT NULL
 );
 
 CREATE UNIQUE INDEX ON events USING btree (calendar_id, event_id);

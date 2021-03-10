@@ -2,11 +2,14 @@
 
 use anyhow::{anyhow, bail, Context, Error};
 use chrono::{Duration, Utc};
-use ics_parser::{components::VCalendar, parser};
+use ics_parser::{
+    components::{VCalendar, VEvent},
+    parser,
+};
 use reqwest::Method;
 use tracing::{error, info, instrument, Span};
 
-use std::{borrow::Cow, convert::TryInto, ops::Deref, str::FromStr};
+use std::{convert::TryInto, ops::Deref, str::FromStr};
 
 use crate::database::{Attendee, Event, EventInstance};
 
@@ -106,7 +109,7 @@ pub async fn fetch_calendars(
 pub fn parse_calendars_to_events(
     calendar_id: i64,
     calendars: &[VCalendar],
-) -> Result<(Vec<Event<'_>>, Vec<EventInstance<'_>>), Error> {
+) -> Result<(Vec<Event>, Vec<EventInstance>), Error> {
     let now = Utc::now();
     let mut events = Vec::new();
     let mut next_dates = Vec::new();
@@ -118,10 +121,11 @@ pub fn parse_calendars_to_events(
 
             events.push(Event {
                 calendar_id,
-                event_id: uid.into(),
-                summary: event.base_event.summary.as_deref().map(Cow::from),
-                description: event.base_event.description.as_deref().map(Cow::from),
-                location: event.base_event.location.as_deref().map(Cow::from),
+                event_id: uid.clone(),
+                summary: event.base_event.summary.clone(),
+                description: event.base_event.description.clone(),
+                location: event.base_event.location.clone(),
+                attendees: get_attendees(&event.base_event),
             });
 
             // Loop through all occurrences of the event in the next N days and
@@ -131,43 +135,48 @@ pub fn parse_calendars_to_events(
                 .skip_while(|(d, _)| *d < now)
                 .take_while(|(d, _)| *d < now + Duration::days(30))
             {
-                let mut attendees = Vec::new();
-
                 // Loop over all the properties to pull out the attendee info.
-                'prop_loop: for prop in &recur_event.properties {
-                    if let ics_parser::property::Property::Attendee(prop) = prop {
-                        if prop.value.scheme() != "mailto" {
-                            continue;
-                        }
-
-                        let email = prop.value.path().to_string();
-
-                        let mut common_name = None;
-                        for param in prop.parameters.parameters() {
-                            match param {
-                                ics_parser::parameters::Parameter::CN(cn) => {
-                                    common_name = Some(cn.clone());
-                                }
-                                ics_parser::parameters::Parameter::ParticipationStatus(status)
-                                    if status == "DECLINED" =>
-                                {
-                                    continue 'prop_loop;
-                                }
-                                _ => {}
-                            }
-                        }
-
-                        attendees.push(Attendee { email, common_name })
-                    }
-                }
 
                 next_dates.push(EventInstance {
                     event_id: uid.into(),
                     date,
-                    attendees,
+                    attendees: get_attendees(recur_event),
                 });
             }
         }
     }
     Ok((events, next_dates))
+}
+
+fn get_attendees(event: &VEvent) -> Vec<Attendee> {
+    let mut attendees = Vec::new();
+
+    'prop_loop: for prop in &event.properties {
+        if let ics_parser::property::Property::Attendee(prop) = prop {
+            if prop.value.scheme() != "mailto" {
+                continue;
+            }
+
+            let email = prop.value.path().to_string();
+
+            let mut common_name = None;
+            for param in prop.parameters.parameters() {
+                match param {
+                    ics_parser::parameters::Parameter::CN(cn) => {
+                        common_name = Some(cn.clone());
+                    }
+                    ics_parser::parameters::Parameter::ParticipationStatus(status)
+                        if status == "DECLINED" =>
+                    {
+                        continue 'prop_loop;
+                    }
+                    _ => {}
+                }
+            }
+
+            attendees.push(Attendee { email, common_name })
+        }
+    }
+
+    attendees
 }

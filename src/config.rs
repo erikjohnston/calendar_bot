@@ -8,7 +8,7 @@ pub struct Config {
     pub matrix: MatrixConfig,
 
     #[serde(default)]
-    pub web: WebConfig,
+    pub app: AppConfig,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -23,6 +23,7 @@ pub struct MatrixConfig {
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
-pub struct WebConfig {
+pub struct AppConfig {
     pub bind_addr: Option<String>,
+    pub resource_directory: Option<String>,
 }

@@ -715,7 +715,7 @@ async fn login_post_html(
 pub async fn run_server(app: App) -> Result<(), Error> {
     let bind_addr = app
         .config
-        .web
+        .app
         .bind_addr
         .as_deref()
         .unwrap_or("127.0.0.1:8080")

@@ -4,7 +4,7 @@
 //! allows scheduling reminders for them, which are sent to Matrix rooms.
 //! Updates to events are correctly handled by the associated reminders.
 
-use std::fs;
+use std::{fs, path::Path};
 
 use anyhow::{Context, Error};
 use bb8_postgres::tokio_postgres::NoTls;
@@ -78,7 +78,9 @@ async fn main() -> Result<(), Error> {
     let db_pool = bb8::Pool::builder().max_size(15).build(manager).await?;
     let database = Database::from_pool(db_pool);
 
-    let templates = Tera::new("res/*")?;
+    let resource_directory = Path::new(config.app.resource_directory.as_deref().unwrap_or("res"));
+
+    let templates = Tera::new(&resource_directory.join("*").to_string_lossy())?;
 
     let notify_db_update = Default::default();
     let app = App {

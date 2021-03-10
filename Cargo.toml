@@ -34,3 +34,6 @@ time = "0.2.25"
 
 [patch.crates-io]
 actix-web-codegen = { path = '/home/erikj/git/actix-web/actix-web-codegen' }
+
+[profile.release]
+debug = true
