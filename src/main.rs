@@ -28,19 +28,9 @@ use tracing_subscriber::fmt::format::FmtSpan;
 
 /// Default markdown template used for generating reminder events.
 const DEFAULT_TEMPLATE: &str = r#"
-#### {{ summary }}
-{{#if (gt minutes_before 0) }}Starts in {{ minutes_before }} minutes{{/if}}
+**{{ summary }}** {{#if (gt minutes_before 0) }}starts in {{ minutes_before }} minutes {{/if}}{{#if location}}at {{ location }} {{/if}}{{#if attendees}} ─ {{ attendees }}{{/if}}{{#if description}}
 
-{{#if location}}
-**Location:** {{ location }}
-{{/if}}
-
-{{#if description}}
 **Description:** {{ description }}
-{{/if}}
-
-{{#if attendees}}
-**Attendees:** {{ attendees }}
 {{/if}}
 "#;
 

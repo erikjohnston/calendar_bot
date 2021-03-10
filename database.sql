@@ -43,8 +43,11 @@ CREATE TABLE reminders (
     event_id text NOT NULL,
     room_id text NOT NULL,
     minutes_before bigint NOT NULL,
-    template text
+    template text,
+    attendee_editable boolean NOT NULL
 );
+
+CREATE INDEX ON reminders(event_id);
 
 
 CREATE TABLE users (

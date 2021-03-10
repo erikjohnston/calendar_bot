@@ -48,8 +48,8 @@ window.addEventListener('load', on_default_template_clicked);
                 {% if reminder %}<input type="hidden" name="reminder_id" value="{{ reminder.reminder_id }}" />{% endif %}
                 <p>Minutes Before: <input type="number" name="minutes_before" value={{ reminder.minutes_before | default(value=30) }} /></p>
                 <p>Room: <input type="text" name="room_id" placeholder="#room:example.com" {% if reminder %} value="{{ reminder.room_id }}" {% endif %} /></p>
-
-                <p>Template: <label for="default-template">Default Template</label><input type="checkbox" name="use_default" onclick="on_default_template_clicked()" id="default-template" {% if not reminder or not reminder.template %} checked {% endif %} /></p>
+                <p><label for="attendee_editable">Allow attendees to edit</label><input type="checkbox" name="attendee_editable" id="attendee_editable" {% if reminder and reminder.attendee_editable %} checked {% endif %} /></p>
+                <p>Template: <label for="default-template">Use Default Template</label><input type="checkbox" name="use_default" onclick="on_default_template_clicked()" id="default-template" {% if not reminder or not reminder.template %} checked {% endif %} /></p>
                 <textarea name="template" id="reminder-template">{{ reminder.template | default(value=default_template) | safe }}</textarea>
                 {% if reminder %}
                 <p>

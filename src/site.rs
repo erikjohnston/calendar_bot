@@ -15,17 +15,17 @@ use itertools::Itertools;
 use rand::{distributions::Alphanumeric, Rng};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use tracing::info;
 use tracing_actix_web::TracingLogger;
 
 use crate::app::App;
 use crate::auth::AuthedUser;
+use crate::database::Reminder;
 
-/// The index page
 #[get("/")]
-async fn index() -> impl Responder {
-    info!("HELLO");
-    "Hello!"
+async fn index(_: AuthedUser) -> impl Responder {
+    let mut builder = HttpResponse::SeeOther();
+    builder.insert_header(("Location", "/calendars"));
+    builder.finish()
 }
 
 async fn assert_user_owns_calendar(
@@ -42,6 +42,26 @@ async fn assert_user_owns_calendar(
     match calendar {
         Some(cal) if cal.user_id == *auth_user => Ok(()),
         _ => Err(ErrorForbidden("forbidden")),
+    }
+}
+
+async fn assert_user_can_edit_reminder(
+    app: &App,
+    auth_user: AuthedUser,
+    reminder_id: i64,
+) -> Result<(), actix_web::Error> {
+    // We check by pulling out all reminders the user can see for the event.
+
+    let reminders = app
+        .database
+        .get_users_who_can_edit_reminder(reminder_id)
+        .await
+        .map_err(ErrorInternalServerError)?;
+
+    if reminders.contains(&*auth_user) {
+        Ok(())
+    } else {
+        Err(ErrorForbidden("forbidden"))
     }
 }
 
@@ -231,7 +251,7 @@ async fn get_reminder_html(
 ) -> Result<impl Responder, actix_web::Error> {
     let (calendar_id, event_id, reminder_id) = path.into_inner();
 
-    assert_user_owns_calendar(&app, user, calendar_id).await?;
+    assert_user_can_edit_reminder(&app, user, reminder_id).await?;
 
     let state = match query.into_inner().state.as_deref() {
         Some("saved") => Some("saved"),
@@ -365,16 +385,18 @@ async fn delete_reminder_html(
 ) -> Result<impl Responder, actix_web::Error> {
     let (calendar_id, event_id) = path.into_inner();
 
-    assert_user_owns_calendar(&app, user, calendar_id).await?;
-
-    if let Some(reminder_id) = data.reminder_id {
-        app.database
-            .delete_reminder_in_calendar(calendar_id, reminder_id)
-            .await
-            .map_err(ErrorInternalServerError)?;
+    let reminder_id = if let Some(reminder_id) = data.reminder_id {
+        reminder_id
     } else {
         return Err(actix_web::error::ErrorNotFound("Couldn't find reminder"));
-    }
+    };
+
+    assert_user_can_edit_reminder(&app, user, reminder_id).await?;
+
+    app.database
+        .delete_reminder_in_calendar(calendar_id, reminder_id)
+        .await
+        .map_err(ErrorInternalServerError)?;
 
     let mut builder = HttpResponse::SeeOther();
     builder.insert_header((
@@ -393,6 +415,7 @@ pub struct UpdateReminderForm {
     pub template: Option<String>,
     pub minutes_before: i64,
     pub room_id: String,
+    pub attendee_editable: Option<String>, // A checkbox, so `Some()` if checked, `None` if not.
 }
 
 #[post("/event/{calendar_id}/{event_id}/reminder")]
@@ -404,8 +427,6 @@ async fn upsert_reminder_html(
 ) -> Result<impl Responder, actix_web::Error> {
     let (calendar_id, event_id) = path.into_inner();
 
-    assert_user_owns_calendar(&app, user, calendar_id).await?;
-
     let data = data.into_inner();
 
     let template = if data.use_default.is_some() {
@@ -415,6 +436,8 @@ async fn upsert_reminder_html(
     };
 
     if let Some(reminder_id) = data.reminder_id {
+        assert_user_can_edit_reminder(&app, user, reminder_id).await?;
+
         app.database
             .update_reminder(
                 calendar_id,
@@ -422,19 +445,24 @@ async fn upsert_reminder_html(
                 &data.room_id,
                 data.minutes_before,
                 template,
+                data.attendee_editable.is_some(),
             )
             .await
             .map_err(ErrorInternalServerError)?;
     } else {
+        assert_user_owns_calendar(&app, user, calendar_id).await?;
+
         app.database
-            .add_reminder(
-                *user,
+            .add_reminder(Reminder {
+                reminder_id: -1, // We're inserting so we use a fake ID
+                user_id: *user,
                 calendar_id,
-                &event_id,
-                &data.room_id,
-                data.minutes_before,
-                template,
-            )
+                event_id: event_id.clone(),
+                room_id: data.room_id,
+                minutes_before: data.minutes_before,
+                template: template.map(ToOwned::to_owned),
+                attendee_editable: data.attendee_editable.is_some(),
+            })
             .await
             .map_err(ErrorInternalServerError)?;
     }

@@ -39,7 +39,7 @@
         {% if reminders %}
             <ul>
             {% for reminder in reminders %}
-                <li>{{ reminder.minutes_before }} minutes before in <code>{{ reminder.room_id }}. <a href="/event/{{ calendar_id }}/{{ event.event_id }}/reminder/{{ reminder.reminder_id }}">Edit</a></code>
+                <li>{{ reminder.minutes_before }} minutes before in <code>{{ reminder.room_id }}. <a href="/event/{{ reminder.calendar_id }}/{{ event.event_id }}/reminder/{{ reminder.reminder_id }}">Edit</a></code>
             {% endfor %}
             </ul>
         {% else %}

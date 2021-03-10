@@ -68,10 +68,12 @@ pub struct ReminderInstance {
 pub struct Reminder {
     pub reminder_id: i64,
     pub calendar_id: i64,
+    pub user_id: i64,
     pub event_id: String,
     pub template: Option<String>,
     pub minutes_before: i64,
     pub room_id: String,
+    pub attendee_editable: bool,
 }
 
 /// Allows talking to the database.
@@ -315,24 +317,27 @@ impl Database {
         Ok(())
     }
 
-    pub async fn add_reminder(
-        &self,
-        user_id: i64,
-        calendar_id: i64,
-        event_id: &'_ str,
-        room_id: &'_ str,
-        minutes_before: i64,
-        template: Option<&'_ str>,
-    ) -> Result<(), Error> {
+    pub async fn add_reminder(&self, reminder: Reminder) -> Result<(), Error> {
         let db_conn = self.db_pool.get().await?;
 
         db_conn
             .execute(
                 r#"
-                    INSERT INTO reminders (user_id, calendar_id, event_id, room_id, minutes_before, template)
-                    VALUES ($1, $2, $3, $4, $5, $6)
+                    INSERT INTO reminders (
+                        user_id, calendar_id, event_id, room_id,
+                        minutes_before, template, attendee_editable
+                    )
+                    VALUES ($1, $2, $3, $4, $5, $6, $7)
             "#,
-                &[&user_id, &calendar_id, &event_id, &room_id, &minutes_before, &template],
+                &[
+                    &reminder.user_id,
+                    &reminder.calendar_id,
+                    &reminder.event_id,
+                    &reminder.room_id,
+                    &reminder.minutes_before,
+                    &reminder.template,
+                    &reminder.attendee_editable,
+                ],
             )
             .await?;
 
@@ -346,6 +351,7 @@ impl Database {
         room_id: &'_ str,
         minutes_before: i64,
         template: Option<&'_ str>,
+        attendee_editable: bool,
     ) -> Result<(), Error> {
         let db_conn = self.db_pool.get().await?;
 
@@ -353,13 +359,15 @@ impl Database {
             .execute(
                 r#"
                     UPDATE reminders
-                    SET room_id = $1, minutes_before = $2, template = $3
-                    WHERE calendar_id = $4 AND reminder_id = $5
+                    SET room_id = $1, minutes_before = $2, template = $3,
+                    attendee_editable = $4
+                    WHERE calendar_id = $5 AND reminder_id = $6
             "#,
                 &[
                     &room_id,
                     &minutes_before,
                     &template,
+                    &attendee_editable,
                     &calendar_id,
                     &reminder_id,
                 ],
@@ -658,7 +666,8 @@ impl Database {
         Ok(Some((event, instances)))
     }
 
-    /// Get reminder for event
+    /// Get reminders for the event, including reminders in other people's
+    /// calendars that are shared.
     pub async fn get_reminders_for_event(
         &self,
         calendar_id: i64,
@@ -669,33 +678,82 @@ impl Database {
         let rows = db_conn
             .query(
                 r#"
-                        SELECT reminder_id, room_id, minutes_before, template
-                        FROM reminders
-                        WHERE calendar_id = $1 AND event_id = $2
+                    SELECT DISTINCT ON (reminder_id) reminders.calendar_id, reminders.user_id, reminder_id, room_id,
+                        minutes_before, attendee_editable, template
+                    FROM (
+                        SELECT user_id, calendar_id, event_id, email(UNNEST(attendees)) AS attendee
+                        FROM events
+                        INNER JOIN calendars USING (calendar_id)
+                        WHERE event_id = $1
+                    ) AS c
+                    INNER JOIN users USING (user_id)
+                    LEFT JOIN email_to_matrix_id USING (matrix_id)
+                    INNER JOIN reminders USING (event_id)
+                    WHERE c.calendar_id = $2
+                        AND (reminders.calendar_id = $2 OR (attendee_editable AND attendee = email))
                     "#,
-                &[&calendar_id, &event_id],
+                &[&event_id, &calendar_id],
             )
             .await?;
 
         let mut reminders = Vec::with_capacity(rows.len());
         for row in rows {
+            let reminder_calendar_id = row.try_get("calendar_id")?;
+            let user_id = row.try_get("user_id")?;
             let reminder_id = row.try_get("reminder_id")?;
             let room_id = row.try_get("room_id")?;
             let minutes_before = row.try_get("minutes_before")?;
             let template = row.try_get("template")?;
+            let attendee_editable = row.try_get("attendee_editable")?;
 
             let reminder = Reminder {
                 reminder_id,
-                calendar_id,
+                user_id,
+                calendar_id: reminder_calendar_id,
                 event_id: event_id.to_string(),
                 room_id,
                 minutes_before,
                 template,
+                attendee_editable,
             };
             reminders.push(reminder)
         }
 
         Ok(reminders)
+    }
+
+    pub async fn get_users_who_can_edit_reminder(
+        &self,
+        reminder_id: i64,
+    ) -> Result<Vec<i64>, Error> {
+        let db_conn = self.db_pool.get().await?;
+
+        let rows = db_conn
+            .query(
+                r#"
+                    SELECT c.user_id FROM (
+                        SELECT user_id, calendar_id, event_id, email(UNNEST(attendees)) AS attendee
+                        FROM events
+                        INNER JOIN calendars USING (calendar_id)
+                    ) AS c
+                    INNER JOIN users USING (user_id)
+                    INNER JOIN email_to_matrix_id USING (matrix_id)
+                    INNER JOIN reminders USING (event_id)
+                    WHERE reminder_id = $1
+                        AND (reminders.calendar_id = c.calendar_id OR (attendee_editable AND attendee = email))
+                    "#,
+                &[&reminder_id],
+            )
+            .await?;
+
+        let mut users = Vec::with_capacity(rows.len());
+
+        for row in rows {
+            let user_id = row.try_get("user_id")?;
+            users.push(user_id);
+        }
+
+        Ok(users)
     }
 
     /// Get a reminder for event
@@ -709,10 +767,11 @@ impl Database {
         let row = db_conn
             .query_opt(
                 r#"
-                        SELECT calendar_id, event_id, reminder_id, room_id, minutes_before, template
-                        FROM reminders
-                        WHERE calendar_id = $1 AND reminder_id = $2
-                    "#,
+                    SELECT calendar_id, event_id, user_id, reminder_id, room_id, minutes_before,
+                        template, attendee_editable
+                    FROM reminders
+                    WHERE calendar_id = $1 AND reminder_id = $2
+                "#,
                 &[&calendar_id, &reminder_id],
             )
             .await?;
@@ -725,18 +784,22 @@ impl Database {
 
         let calendar_id = row.try_get("calendar_id")?;
         let reminder_id = row.try_get("reminder_id")?;
+        let user_id = row.try_get("user_id")?;
         let event_id = row.try_get("event_id")?;
         let room_id = row.try_get("room_id")?;
         let minutes_before = row.try_get("minutes_before")?;
         let template = row.try_get("template")?;
+        let attendee_editable = row.try_get("attendee_editable")?;
 
         let reminder = Reminder {
             reminder_id,
+            user_id,
             calendar_id,
             event_id,
             room_id,
             minutes_before,
             template,
+            attendee_editable,
         };
 
         Ok(Some(reminder))
