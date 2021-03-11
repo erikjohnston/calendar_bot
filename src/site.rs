@@ -90,7 +90,7 @@ async fn list_events_calendar_html(
                 "summary": &event.summary,
                 "description": &event.description,
                 "location": &event.location,
-                "next_dates": instances.iter().map(|i| i.date.to_string()).collect_vec(),
+                "next_dates": instances.iter().map(|i| i.date.to_rfc3339()).collect_vec(),
             })
         }).collect_vec(),
         "calendar_id": calendar_id,
@@ -130,7 +130,7 @@ async fn list_events_html(
                 "summary": &event.summary,
                 "description": &event.description,
                 "location": &event.location,
-                "next_dates": instances.iter().map(|i| i.date.to_string()).collect_vec(),
+                "next_dates": instances.iter().map(|i| i.date.to_rfc3339()).collect_vec(),
             })
         }).collect_vec(),
     });
@@ -220,7 +220,7 @@ async fn new_reminder_html(
             "summary": &event.summary,
             "description": &event.description,
             "location": &event.location,
-            "next_dates": instances.iter().map(|i| i.date.to_string()).collect_vec()
+            "next_dates": instances.iter().map(|i| i.date.to_rfc3339()).collect_vec()
         },
         "calendar_id": calendar_id,
         "default_template": crate::DEFAULT_TEMPLATE,
@@ -289,7 +289,7 @@ async fn get_reminder_html(
             "summary": &event.summary,
             "description": &event.description,
             "location": &event.location,
-            "next_dates": instances.iter().map(|i| i.date.to_string()).collect_vec()
+            "next_dates": instances.iter().map(|i| i.date.to_rfc3339()).collect_vec()
         },
         "calendar_id": calendar_id,
         "reminder": reminder,
@@ -353,7 +353,7 @@ async fn get_event_html(
             "summary": &event.summary,
             "description": &event.description,
             "location": &event.location,
-            "next_dates": instances.iter().map(|i| i.date.to_string()).collect_vec()
+            "next_dates": instances.iter().map(|i| i.date.to_rfc3339()).collect_vec()
         },
         "calendar_id": calendar_id,
         "reminders": reminders,
