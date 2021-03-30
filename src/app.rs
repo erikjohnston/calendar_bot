@@ -144,7 +144,7 @@ impl App {
         info!(num = reminders.len(), "Updated reminders");
 
         self.reminders.replace(reminders);
-        self.notify_db_update.notify_waiters();
+        self.notify_db_update.notify_one();
 
         Ok(())
     }
@@ -194,7 +194,8 @@ impl App {
             let next_wakeup = self
                 .reminders
                 .get_time_to_next()
-                .unwrap_or_else(|| Duration::minutes(1));
+                .unwrap_or_else(|| Duration::minutes(5))
+                .max(Duration::minutes(5));
 
             info!(
                 time_to_next = ?self.reminders.get_time_to_next(),
