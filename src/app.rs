@@ -19,6 +19,7 @@ use anyhow::{bail, Context, Error};
 use chrono::{DateTime, Duration, Utc};
 
 use comrak::{markdown_to_html, ComrakOptions};
+use futures::future;
 use handlebars::Handlebars;
 
 use itertools::Itertools;
@@ -56,6 +57,7 @@ impl Reminders {
         let now = Utc::now();
 
         while let Some((date, reminder)) = reminders.pop_front() {
+            info!(date = ?date, now = ?now, "Checking reminder");
             if date <= now {
                 due_reminders.push(reminder);
             } else {
@@ -195,10 +197,10 @@ impl App {
                 .reminders
                 .get_time_to_next()
                 .unwrap_or_else(|| Duration::minutes(5))
-                .max(Duration::minutes(5));
+                .min(Duration::minutes(5));
 
             info!(
-                time_to_next = ?self.reminders.get_time_to_next(),
+                time_to_next = ?next_wakeup,
                 "Next reminder"
             );
 
@@ -206,16 +208,25 @@ impl App {
             // the case then we have due reminders that we can process
             // immediately.
             if let Ok(dur) = next_wakeup.to_std() {
-                let sleep_fut = sleep(dur);
-                tokio::pin!(sleep_fut);
+                info!(
+                    next_wakeup = ?next_wakeup,
+                    "Sleeping for"
+                );
 
-                tokio::select! {
-                    _ = sleep_fut => {},
-                    _ = self.notify_db_update.notified() => {},
+                tokio::pin! {
+                    let sleep_fut = sleep(dur);
+                    let notify = self.notify_db_update.notified();
                 }
+
+                future::select(sleep_fut, notify).await;
             }
 
-            for reminder in self.reminders.pop_due_reminders() {
+            let reminders = self.reminders.pop_due_reminders();
+
+            info!(count = reminders.len(), "Due reminders");
+
+            for reminder in reminders {
+                info!(event_id = reminder.event_id.deref(), "Sending reminder");
                 if let Err(err) = self.send_reminder(reminder).await {
                     error!(
                         error = err.deref() as &dyn StdError,

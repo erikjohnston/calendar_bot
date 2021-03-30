@@ -1,12 +1,14 @@
 //! Module for talking to the database
 
 use std::collections::{BTreeMap, VecDeque};
+use std::ops::Deref;
 
 use anyhow::Error;
 use chrono::{DateTime, Duration, FixedOffset, Utc};
 use postgres_types::{FromSql, ToSql};
 use serde::{Deserialize, Serialize};
 use tokio_postgres::NoTls;
+use tracing::debug;
 
 /// Async database pool for PostgreSQL.
 pub type PostgresPool = bb8::Pool<bb8_postgres::PostgresConnectionManager<NoTls>>;
@@ -417,6 +419,7 @@ impl Database {
             .await?;
 
         let mut reminders = VecDeque::with_capacity(rows.len());
+        let now = Utc::now();
 
         for row in rows {
             let event_id: String = row.get(0);
@@ -430,9 +433,10 @@ impl Database {
             let attendees: Vec<Attendee> = row.get(8);
 
             let reminder_time = timestamp - Duration::minutes(minutes_before);
-            if reminder_time < Utc::now() {
+            if reminder_time < now {
                 // XXX: There's technically a race here if we reload the
                 // reminders just as we're about to send out a reminder.
+                debug!(now = ?now, reminder_time =?reminder_time, event_id = event_id.deref(), "Ignoring reminder");
                 continue;
             }
 
