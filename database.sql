@@ -14,6 +14,7 @@ CREATE TABLE events (
     summary text,
     description text,
     location text,
+    organizer "Attendee",
     attendees "Attendee"[] NOT NULL
 );
 
@@ -41,7 +42,7 @@ CREATE TABLE reminders (
     user_id bigint NOT NULL,
     calendar_id bigint NOT NULL,
     event_id text NOT NULL,
-    room_id text NOT NULL,
+    room text NOT NULL,
     minutes_before bigint NOT NULL,
     template text,
     attendee_editable boolean NOT NULL

@@ -5,9 +5,11 @@ use chrono::{Duration, Utc};
 use ics_parser::{
     components::{VCalendar, VEvent},
     parser,
+    property::PropertyValue,
 };
 use reqwest::Method;
 use tracing::{error, info, instrument, Span};
+use url::Url;
 
 use std::{convert::TryInto, ops::Deref, str::FromStr};
 
@@ -119,12 +121,20 @@ pub fn parse_calendars_to_events(
                 continue;
             }
 
+            let mut organizer = None;
+            for prop in &event.base_event.properties {
+                if let ics_parser::property::Property::Organizer(prop) = prop {
+                    organizer = parse_to_attendee(prop);
+                }
+            }
+
             events.push(Event {
                 calendar_id,
                 event_id: uid.clone(),
                 summary: event.base_event.summary.clone(),
                 description: event.base_event.description.clone(),
                 location: event.base_event.location.clone(),
+                organizer,
                 attendees: get_attendees(&event.base_event),
             });
 
@@ -151,32 +161,38 @@ pub fn parse_calendars_to_events(
 fn get_attendees(event: &VEvent) -> Vec<Attendee> {
     let mut attendees = Vec::new();
 
-    'prop_loop: for prop in &event.properties {
+    for prop in &event.properties {
         if let ics_parser::property::Property::Attendee(prop) = prop {
-            if prop.value.scheme() != "mailto" {
-                continue;
+            if let Some(attendee) = parse_to_attendee(prop) {
+                attendees.push(attendee)
             }
-
-            let email = prop.value.path().to_string();
-
-            let mut common_name = None;
-            for param in prop.parameters.parameters() {
-                match param {
-                    ics_parser::parameters::Parameter::CN(cn) => {
-                        common_name = Some(cn.clone());
-                    }
-                    ics_parser::parameters::Parameter::ParticipationStatus(status)
-                        if status == "DECLINED" =>
-                    {
-                        continue 'prop_loop;
-                    }
-                    _ => {}
-                }
-            }
-
-            attendees.push(Attendee { email, common_name })
         }
     }
 
     attendees
+}
+
+fn parse_to_attendee(prop: &PropertyValue<Url>) -> Option<Attendee> {
+    if prop.value.scheme() != "mailto" {
+        return None;
+    }
+
+    let email = prop.value.path().to_string();
+
+    let mut common_name = None;
+    for param in prop.parameters.parameters() {
+        match param {
+            ics_parser::parameters::Parameter::CN(cn) => {
+                common_name = Some(cn.clone());
+            }
+            ics_parser::parameters::Parameter::ParticipationStatus(status)
+                if status == "DECLINED" =>
+            {
+                return None
+            }
+            _ => {}
+        }
+    }
+
+    Some(Attendee { email, common_name })
 }

@@ -1,7 +1,7 @@
 //! The high level app.
 
 use std::{
-    collections::{BTreeMap, VecDeque},
+    collections::{BTreeMap, HashMap, VecDeque},
     error::Error as StdError,
     ops::Deref,
     sync::{Arc, Mutex},
@@ -15,15 +15,13 @@ use crate::{config::Config, database::Database};
 use crate::{database::Calendar, DEFAULT_TEMPLATE};
 
 use anyhow::{bail, Context, Error};
-
 use chrono::{DateTime, Duration, Utc};
-
 use comrak::{markdown_to_html, ComrakOptions};
 use futures::future;
 use handlebars::Handlebars;
-
+use ics_parser::property::EndCondition;
 use itertools::Itertools;
-
+use serde::Deserialize;
 use serde_json::json;
 use tera::Tera;
 use tokio::{
@@ -31,6 +29,7 @@ use tokio::{
     time::{interval, sleep},
 };
 use tracing::{error, info, instrument, Span};
+use urlencoding::encode;
 
 /// Inner type for [`Reminders`]
 type ReminderInner = Arc<Mutex<VecDeque<(DateTime<Utc>, ReminderInstance)>>>;
@@ -75,6 +74,11 @@ impl Reminders {
 
         *inner = reminders;
     }
+}
+
+#[derive(Debug, Deserialize)]
+struct MatrixJoinResponse {
+    room_id: String,
 }
 
 /// The high level app.
@@ -127,7 +131,94 @@ impl App {
         )
         .await?;
 
+        let mut vevents_by_id = HashMap::new();
+        for calendar in &calendars {
+            vevents_by_id.extend(&calendar.events);
+        }
+
         let (events, next_dates) = parse_calendars_to_events(db_calendar.calendar_id, &calendars)?;
+
+        // Some calendar systems (read: FastMail) create new events when people
+        // edit the times for future events. Since we want the reminders to
+        // apply to the new event we add some heuristics to detect this case and
+        // copy across the reminders.
+        let previous_events = self
+            .database
+            .get_events_in_calendar(db_calendar.calendar_id)
+            .await?;
+
+        let mut previous_events_by_id = HashMap::new();
+        for (previous_event, _) in &previous_events {
+            previous_events_by_id.insert(&previous_event.event_id, previous_event);
+        }
+
+        let mut events_by_summmary: HashMap<_, Vec<_>> = HashMap::new();
+        let mut events_by_id = HashMap::new();
+        for event in &events {
+            events_by_summmary
+                .entry((&event.summary, &event.organizer))
+                .or_default()
+                .push(event);
+            events_by_id.insert(&event.event_id, event);
+        }
+
+        for (previous_event, _) in &previous_events {
+            // Figure out if we should attempt to deduplicated based on this
+            // event. We're either expecting it to not appear in the calendar or
+            // for it to be a recurring event that has an end date.
+            if let Some(existing_event) = vevents_by_id.get(&previous_event.event_id) {
+                if let Some(recur) = &existing_event.base_event.recur {
+                    match recur.end_condition {
+                        EndCondition::Count(_) | EndCondition::Infinite => {
+                            // The previous event hasn't been stopped, so we don't deduplicate.
+                            continue;
+                        }
+                        EndCondition::Until(_) | EndCondition::UntilUtc(_) => {
+                            // The previous event has been stopped, so we deduplicate.
+                        }
+                    }
+                } else {
+                    // Not a recurring event, so don't need to deduplicate.
+                    continue;
+                }
+            }
+
+            for new_event in events_by_summmary
+                .get(&(&previous_event.summary, &previous_event.organizer))
+                .map(|v| v.deref())
+                .unwrap_or_else(|| &[])
+            {
+                if previous_event.event_id == new_event.event_id {
+                    // This is just an event that we already have.
+                    continue;
+                }
+
+                if previous_events_by_id.contains_key(&new_event.event_id) {
+                    // We've already processed the new event.
+                    continue;
+                }
+
+                let reminders = self
+                    .database
+                    .get_reminders_for_event(db_calendar.calendar_id, &previous_event.event_id)
+                    .await?;
+
+                info!(
+                    calendar_id = db_calendar.calendar_id,
+                    prev_event = previous_event.event_id.deref(),
+                    new_event = new_event.event_id.deref(),
+                    reminders = reminders.len(),
+                    "Found event duplicate, porting reminders."
+                );
+
+                for mut reminder in reminders {
+                    reminder.reminder_id = -1;
+                    reminder.event_id = new_event.event_id.clone();
+
+                    self.database.add_reminder(reminder).await?;
+                }
+            }
+        }
 
         self.database
             .insert_events(db_calendar.calendar_id, events, next_dates)
@@ -242,7 +333,8 @@ impl App {
     async fn send_reminder(&self, reminder: ReminderInstance) -> Result<(), Error> {
         let join_url = format!(
             "{}/_matrix/client/r0/join/{}",
-            self.config.matrix.homeserver_url, reminder.room_id
+            self.config.matrix.homeserver_url,
+            encode(&reminder.room),
         );
 
         let resp = self
@@ -257,6 +349,8 @@ impl App {
         if !resp.status().is_success() {
             bail!("Got non-2xx from /join response: {}", resp.status());
         }
+
+        let body: MatrixJoinResponse = resp.json().await?;
 
         let markdown_template = reminder.template.as_deref().unwrap_or(DEFAULT_TEMPLATE);
 
@@ -309,7 +403,7 @@ impl App {
 
         let url = format!(
             "{}/_matrix/client/r0/rooms/{}/send/m.room.message",
-            self.config.matrix.homeserver_url, reminder.room_id
+            self.config.matrix.homeserver_url, body.room_id
         );
 
         let resp = self
@@ -326,7 +420,7 @@ impl App {
         info!(
             status = resp.status().as_u16(),
             event_id = reminder.event_id.deref(),
-            room_id = reminder.room_id.deref(),
+            room_id = body.room_id.deref(),
             "Sent reminder"
         );
 

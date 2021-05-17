@@ -414,7 +414,7 @@ pub struct UpdateReminderForm {
     pub use_default: Option<String>, // A checkbox, so `Some()` if checked, `None` if not.
     pub template: Option<String>,
     pub minutes_before: i64,
-    pub room_id: String,
+    pub room: String,
     pub attendee_editable: Option<String>, // A checkbox, so `Some()` if checked, `None` if not.
 }
 
@@ -442,7 +442,7 @@ async fn upsert_reminder_html(
             .update_reminder(
                 calendar_id,
                 reminder_id,
-                &data.room_id,
+                &data.room,
                 data.minutes_before,
                 template,
                 data.attendee_editable.is_some(),
@@ -458,7 +458,7 @@ async fn upsert_reminder_html(
                 user_id: *user,
                 calendar_id,
                 event_id: event_id.clone(),
-                room_id: data.room_id,
+                room: data.room,
                 minutes_before: data.minutes_before,
                 template: template.map(ToOwned::to_owned),
                 attendee_editable: data.attendee_editable.is_some(),
@@ -752,7 +752,7 @@ pub async fn run_server(app: App) -> Result<(), Error> {
     HttpServer::new(move || {
         actix_web::App::new()
             .data(app.clone())
-            .wrap(TracingLogger)
+            .wrap(TracingLogger::default())
             .wrap(Logger::default())
             .service(index)
             .service(list_events_html)

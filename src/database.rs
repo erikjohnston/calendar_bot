@@ -16,14 +16,14 @@ pub type PostgresPool = bb8::Pool<bb8_postgres::PostgresConnectionManager<NoTls>
 /// An attendee of the meeting.
 ///
 /// Includes people who haven't responded, or are tentative/confirmed.
-#[derive(Debug, Clone, ToSql, FromSql)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, ToSql, FromSql)]
 pub struct Attendee {
     pub email: String,
     pub common_name: Option<String>,
 }
 
 /// The URL and credentials of a calendar.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Clone, Serialize)]
 pub struct Calendar {
     pub user_id: i64,
     pub calendar_id: i64,
@@ -31,6 +31,20 @@ pub struct Calendar {
     pub url: String,
     pub user_name: Option<String>,
     pub password: Option<String>,
+}
+
+impl std::fmt::Debug for Calendar {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // We format this ourselves as we don't want to leak the password.
+        f.debug_struct("Calendar")
+            .field("user_id", &self.user_id)
+            .field("calendar_id", &self.calendar_id)
+            .field("name", &self.name)
+            .field("url", &self.url)
+            .field("user_name", &self.user_name)
+            .field("password", &self.password.as_deref().map(|_| "xxxxxxxxx"))
+            .finish()
+    }
 }
 
 /// Basic info for an event.
@@ -41,6 +55,7 @@ pub struct Event {
     pub summary: Option<String>,
     pub description: Option<String>,
     pub location: Option<String>,
+    pub organizer: Option<Attendee>,
     pub attendees: Vec<Attendee>,
 }
 
@@ -61,7 +76,7 @@ pub struct ReminderInstance {
     pub location: Option<String>,
     pub template: Option<String>,
     pub minutes_before: i64,
-    pub room_id: String,
+    pub room: String,
     pub attendees: Vec<Attendee>,
 }
 
@@ -74,7 +89,7 @@ pub struct Reminder {
     pub event_id: String,
     pub template: Option<String>,
     pub minutes_before: i64,
-    pub room_id: String,
+    pub room: String,
     pub attendee_editable: bool,
 }
 
@@ -271,21 +286,22 @@ impl Database {
         futures::future::try_join_all(events.iter().map(|event| {
             txn.execute_raw(
                 r#"
-                INSERT INTO events (calendar_id, event_id, summary, description, location, attendees)
-                VALUES ($1, $2, $3, $4, $5, $6)
-                ON CONFLICT (calendar_id, event_id)
-                DO UPDATE SET
-                    summary = EXCLUDED.summary,
-                    description = EXCLUDED.description,
-                    location = EXCLUDED.location,
-                    attendees = EXCLUDED.attendees
-            "#,
+                    INSERT INTO events (calendar_id, event_id, summary, description, location, organizer, attendees)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7)
+                    ON CONFLICT (calendar_id, event_id)
+                    DO UPDATE SET
+                        summary = EXCLUDED.summary,
+                        description = EXCLUDED.description,
+                        location = EXCLUDED.location,
+                        attendees = EXCLUDED.attendees
+                "#,
                 vec![
                     &calendar_id as &dyn ToSql,
                     &event.event_id,
                     &event.summary,
                     &event.description,
                     &event.location,
+                    &event.organizer,
                     &event.attendees,
                 ],
             )
@@ -326,7 +342,7 @@ impl Database {
             .execute(
                 r#"
                     INSERT INTO reminders (
-                        user_id, calendar_id, event_id, room_id,
+                        user_id, calendar_id, event_id, room,
                         minutes_before, template, attendee_editable
                     )
                     VALUES ($1, $2, $3, $4, $5, $6, $7)
@@ -335,7 +351,7 @@ impl Database {
                     &reminder.user_id,
                     &reminder.calendar_id,
                     &reminder.event_id,
-                    &reminder.room_id,
+                    &reminder.room,
                     &reminder.minutes_before,
                     &reminder.template,
                     &reminder.attendee_editable,
@@ -350,7 +366,7 @@ impl Database {
         &self,
         calendar_id: i64,
         reminder_id: i64,
-        room_id: &'_ str,
+        room: &'_ str,
         minutes_before: i64,
         template: Option<&'_ str>,
         attendee_editable: bool,
@@ -361,12 +377,12 @@ impl Database {
             .execute(
                 r#"
                     UPDATE reminders
-                    SET room_id = $1, minutes_before = $2, template = $3,
+                    SET room = $1, minutes_before = $2, template = $3,
                     attendee_editable = $4
                     WHERE calendar_id = $5 AND reminder_id = $6
             "#,
                 &[
-                    &room_id,
+                    &room,
                     &minutes_before,
                     &template,
                     &attendee_editable,
@@ -408,7 +424,7 @@ impl Database {
         let rows = db_conn
             .query(
                 r#"
-                    SELECT event_id, summary, description, location, timestamp, room_id, minutes_before, template, i.attendees
+                    SELECT event_id, summary, description, location, timestamp, room, minutes_before, template, i.attendees
                     FROM reminders
                     INNER JOIN events USING (calendar_id, event_id)
                     INNER JOIN next_dates AS i USING (calendar_id, event_id)
@@ -427,7 +443,7 @@ impl Database {
             let description: Option<String> = row.get(2);
             let location: Option<String> = row.get(3);
             let timestamp: DateTime<Utc> = row.get(4);
-            let room_id: String = row.get(5);
+            let room: String = row.get(5);
             let minutes_before: i64 = row.get(6);
             let template: Option<String> = row.get(7);
             let attendees: Vec<Attendee> = row.get(8);
@@ -447,7 +463,7 @@ impl Database {
                 location,
                 template,
                 minutes_before,
-                room_id,
+                room,
                 attendees,
             };
 
@@ -470,7 +486,7 @@ impl Database {
             .query(
                 r#"
                     SELECT DISTINCT ON (event_id) event_id, summary, description, location, timestamp,
-                        e.attendees AS event_attendees, i.attendees AS instance_attendees
+                        organizer, e.attendees AS event_attendees, i.attendees AS instance_attendees
                     FROM events AS e
                     INNER JOIN next_dates AS i USING (calendar_id, event_id)
                     WHERE calendar_id = $1
@@ -488,6 +504,7 @@ impl Database {
             let description = row.try_get("description")?;
             let location = row.try_get("location")?;
             let date = row.try_get("timestamp")?;
+            let organizer = row.try_get("organizer")?;
             let instance_attendees = row.try_get("instance_attendees")?;
             let event_attendees = row.try_get("event_attendees")?;
 
@@ -515,6 +532,7 @@ impl Database {
                 summary,
                 description,
                 location,
+                organizer,
                 attendees: event_attendees,
             };
             events.push((event, vec![instance]));
@@ -535,7 +553,7 @@ impl Database {
             .query(
                 r#"
                     SELECT DISTINCT ON (calendar_id, event_id) calendar_id, event_id, summary, description, location, timestamp,
-                        e.attendees AS event_attendees, i.attendees AS instance_attendees
+                        organizer, e.attendees AS event_attendees, i.attendees AS instance_attendees
                     FROM calendars
                     INNER JOIN events AS e USING (calendar_id)
                     INNER JOIN next_dates AS i USING (calendar_id, event_id)
@@ -555,6 +573,7 @@ impl Database {
             let description = row.try_get("description")?;
             let location = row.try_get("location")?;
             let date = row.try_get("timestamp")?;
+            let organizer = row.try_get("organizer")?;
             let instance_attendees = row.try_get("instance_attendees")?;
             let event_attendees = row.try_get("event_attendees")?;
 
@@ -582,6 +601,7 @@ impl Database {
                 summary,
                 description,
                 location,
+                organizer,
                 attendees: event_attendees,
             };
             events.push((event, vec![instance]));
@@ -604,7 +624,7 @@ impl Database {
             .query_opt(
                 r#"
                     SELECT DISTINCT ON (event_id) event_id, summary, description, location,
-                        attendees
+                        organizer, attendees
                     FROM events
                     WHERE calendar_id = $1 AND event_id = $2
                 "#,
@@ -623,6 +643,7 @@ impl Database {
         let description = row.try_get("description")?;
         let location = row.try_get("location")?;
         let attendees = row.try_get("attendees")?;
+        let organizer = row.try_get("organizer")?;
 
         let event = Event {
             calendar_id,
@@ -631,6 +652,7 @@ impl Database {
             description,
             location,
             attendees,
+            organizer,
         };
 
         let mut instances = Vec::new();
@@ -682,7 +704,7 @@ impl Database {
         let rows = db_conn
             .query(
                 r#"
-                    SELECT DISTINCT ON (reminder_id) reminders.calendar_id, reminders.user_id, reminder_id, room_id,
+                    SELECT DISTINCT ON (reminder_id) reminders.calendar_id, reminders.user_id, reminder_id, room,
                         minutes_before, attendee_editable, template
                     FROM (
                         SELECT user_id, calendar_id, event_id, email(UNNEST(attendees)) AS attendee
@@ -705,7 +727,7 @@ impl Database {
             let reminder_calendar_id = row.try_get("calendar_id")?;
             let user_id = row.try_get("user_id")?;
             let reminder_id = row.try_get("reminder_id")?;
-            let room_id = row.try_get("room_id")?;
+            let room = row.try_get("room")?;
             let minutes_before = row.try_get("minutes_before")?;
             let template = row.try_get("template")?;
             let attendee_editable = row.try_get("attendee_editable")?;
@@ -715,7 +737,7 @@ impl Database {
                 user_id,
                 calendar_id: reminder_calendar_id,
                 event_id: event_id.to_string(),
-                room_id,
+                room,
                 minutes_before,
                 template,
                 attendee_editable,
@@ -771,7 +793,7 @@ impl Database {
         let row = db_conn
             .query_opt(
                 r#"
-                    SELECT calendar_id, event_id, user_id, reminder_id, room_id, minutes_before,
+                    SELECT calendar_id, event_id, user_id, reminder_id, room, minutes_before,
                         template, attendee_editable
                     FROM reminders
                     WHERE calendar_id = $1 AND reminder_id = $2
@@ -790,19 +812,19 @@ impl Database {
         let reminder_id = row.try_get("reminder_id")?;
         let user_id = row.try_get("user_id")?;
         let event_id = row.try_get("event_id")?;
-        let room_id = row.try_get("room_id")?;
+        let room = row.try_get("room")?;
         let minutes_before = row.try_get("minutes_before")?;
         let template = row.try_get("template")?;
         let attendee_editable = row.try_get("attendee_editable")?;
 
         let reminder = Reminder {
             reminder_id,
-            user_id,
             calendar_id,
+            user_id,
             event_id,
-            room_id,
-            minutes_before,
             template,
+            minutes_before,
+            room,
             attendee_editable,
         };
 
