@@ -36,3 +36,7 @@ url = "2.2.2"
 
 [profile.release]
 debug = true
+
+[patch.crates-io]
+tokio-postgres = { git = "https://github.com/sfackler/rust-postgres", rev = "d95eb353dd0fccec5986cb364d6bd1ef10034fac" }
+postgres-types = { git = "https://github.com/sfackler/rust-postgres", rev = "d95eb353dd0fccec5986cb364d6bd1ef10034fac" }
