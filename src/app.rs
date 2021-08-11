@@ -198,10 +198,16 @@ impl App {
                     continue;
                 }
 
-                let reminders = self
+                let mut reminders = self
                     .database
                     .get_reminders_for_event(db_calendar.calendar_id, &previous_event.event_id)
                     .await?;
+
+                // We only want to apply this logic for reminders that this user owns.
+                reminders = reminders
+                    .into_iter()
+                    .filter(|r| r.user_id == db_calendar.user_id)
+                    .collect();
 
                 info!(
                     calendar_id = db_calendar.calendar_id,
