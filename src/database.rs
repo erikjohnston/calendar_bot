@@ -713,10 +713,18 @@ impl Database {
                         WHERE event_id = $1
                     ) AS c
                     INNER JOIN users USING (user_id)
-                    LEFT JOIN email_to_matrix_id USING (matrix_id)
                     INNER JOIN reminders USING (event_id)
-                    WHERE c.calendar_id = $2
-                        AND (reminders.calendar_id = $2 OR (attendee_editable AND email IN (SELECT email(UNNEST(attendees)))))
+                    WHERE
+                        c.calendar_id = $2
+                        AND (
+                            -- Either the event is in their own calendar...
+                            reminders.calendar_id = $2
+                            --- Or the reminder is attendee editable and they are an attendee
+                            OR (attendee_editable AND users.matrix_id IN (
+                                SELECT e.matrix_id FROM UNNEST(attendees) AS a
+                                INNER JOIN email_to_matrix_id AS e USING (email)
+                            ))
+                        )
                     "#,
                 &[&event_id, &calendar_id],
             )
@@ -758,15 +766,22 @@ impl Database {
             .query(
                 r#"
                     SELECT c.user_id FROM (
-                        SELECT user_id, calendar_id, event_id, email(UNNEST(attendees)) AS attendee
+                        SELECT user_id, calendar_id, event_id, attendees
                         FROM events
                         INNER JOIN calendars USING (calendar_id)
                     ) AS c
                     INNER JOIN users USING (user_id)
-                    INNER JOIN email_to_matrix_id USING (matrix_id)
                     INNER JOIN reminders USING (event_id)
                     WHERE reminder_id = $1
-                        AND (reminders.calendar_id = c.calendar_id OR (attendee_editable AND attendee = email))
+                        AND (
+                            -- Either the event is in their own calendar...
+                            reminders.calendar_id = c.calendar_id
+                            --- Or the reminder is attendee editable and they are an attendee
+                            OR (attendee_editable AND users.matrix_id IN (
+                                SELECT e.matrix_id FROM UNNEST(attendees) AS a
+                                INNER JOIN email_to_matrix_id AS e USING (email)
+                            ))
+                        )
                     "#,
                 &[&reminder_id],
             )

@@ -65,6 +65,7 @@ CREATE TABLE email_to_matrix_id (
     matrix_id TEXT NOT NULL
 );
 
+CREATE INDEX ON email_to_matrix_id(matrix_id);
 
 CREATE TABLE access_tokens (
     access_token_id BIGSERIAL PRIMARY KEY,
