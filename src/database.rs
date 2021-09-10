@@ -1,6 +1,6 @@
 //! Module for talking to the database
 
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::ops::Deref;
 
 use anyhow::Error;
@@ -928,5 +928,13 @@ impl Database {
         txn.commit().await?;
 
         Ok(())
+    }
+
+    pub async fn get_out_today_emails(&self) -> Result<BTreeSet<String>, Error> {
+        let db_conn = self.db_pool.get().await?;
+
+        let rows = db_conn.query("SELECT email FROM out_today", &[]).await?;
+
+        Ok(rows.into_iter().map(|row| row.get(0)).collect())
     }
 }

@@ -381,9 +381,12 @@ impl App {
 
         let markdown_template = reminder.template.as_deref().unwrap_or(DEFAULT_TEMPLATE);
 
+        let out_today_emails = self.database.get_out_today_emails().await?;
+
         let attendees = reminder
             .attendees
             .iter()
+            .filter(|attendee| !out_today_emails.contains(&attendee.email))
             .map(|attendee| {
                 if let Some(matrix_id) = self
                     .email_to_matrix_id
