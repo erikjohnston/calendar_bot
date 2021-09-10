@@ -18,7 +18,7 @@ use crate::database::{Attendee, Event, EventInstance};
 /// Parse a ICS encoded calendar.
 fn decode_calendar(cal_body: &str) -> Result<Vec<VCalendar>, Error> {
     let components =
-        parser::Component::from_str_to_stream(&cal_body).with_context(|| "decoding component")?;
+        parser::Component::from_str_to_stream(cal_body).with_context(|| "decoding component")?;
 
     components
         .into_iter()
@@ -141,7 +141,7 @@ pub fn parse_calendars_to_events(
             // Loop through all occurrences of the event in the next N days and
             // generate `EventInstance` for them.
             for (date, recur_event) in event
-                .recur_iter(&calendar)?
+                .recur_iter(calendar)?
                 .skip_while(|(d, _)| *d < now)
                 .take_while(|(d, _)| *d < now + Duration::days(30))
             {

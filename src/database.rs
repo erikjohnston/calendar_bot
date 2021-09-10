@@ -910,4 +910,23 @@ impl Database {
             Ok(None)
         }
     }
+
+    pub async fn set_out_today(&self, emails: &[String]) -> Result<(), Error> {
+        let mut db_conn = self.db_pool.get().await?;
+
+        let txn = db_conn.transaction().await?;
+
+        txn.execute("TRUNCATE out_today", &[]).await?;
+
+        futures::future::try_join_all(
+            emails
+                .iter()
+                .map(|email| txn.execute_raw("INSERT INTO out_today VALUES ($1)", vec![email])),
+        )
+        .await?;
+
+        txn.commit().await?;
+
+        Ok(())
+    }
 }

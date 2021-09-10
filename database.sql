@@ -74,3 +74,10 @@ CREATE TABLE access_tokens (
 );
 
 CREATE UNIQUE INDEX ON access_tokens (token);
+
+
+CREATE TABLE out_today (
+    email TEXT NOT NULL
+);
+
+CREATE UNIQUE INDEX ON out_today ( email );

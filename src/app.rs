@@ -9,13 +9,14 @@ use std::{
 
 use crate::{
     calendar::{fetch_calendars, parse_calendars_to_events},
+    config::HiBobConfig,
     database::ReminderInstance,
 };
 use crate::{config::Config, database::Database};
 use crate::{database::Calendar, DEFAULT_TEMPLATE};
 
 use anyhow::{bail, Context, Error};
-use chrono::{DateTime, Duration, Utc};
+use chrono::{DateTime, Duration, NaiveDate, Utc};
 use comrak::{markdown_to_html, ComrakOptions};
 use futures::future;
 use handlebars::Handlebars;
@@ -38,6 +39,25 @@ type ReminderInner = Arc<Mutex<VecDeque<(DateTime<Utc>, ReminderInstance)>>>;
 #[derive(Debug, Clone, Default)]
 pub struct Reminders {
     inner: ReminderInner,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct HiBobOutResponse {
+    outs: Vec<HiBobOutResponseField>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct HiBobOutResponseField {
+    #[serde(rename = "employeeEmail")]
+    employee_email: String,
+    #[serde(rename = "startDate")]
+    start_date: NaiveDate,
+    #[serde(rename = "endDate")]
+    end_date: NaiveDate,
+    #[serde(rename = "startDatePortion")]
+    start_date_portion: String,
+    #[serde(rename = "endDatePortion")]
+    end_date_portion: String,
 }
 
 impl Reminders {
@@ -100,6 +120,7 @@ impl App {
             self.update_calendar_loop(),
             self.reminder_loop(),
             self.update_mappings_loop(),
+            self.hibob_loop(),
         );
     }
 
@@ -433,6 +454,71 @@ impl App {
         if !resp.status().is_success() {
             bail!("Got non-2xx from /send response: {}", resp.status());
         }
+
+        Ok(())
+    }
+
+    async fn hibob_loop(&self) {
+        let config = if let Some(config) = &self.config.hibob {
+            config
+        } else {
+            return;
+        };
+
+        let mut interval = interval(Duration::minutes(5).to_std().expect("std duration"));
+
+        loop {
+            interval.tick().await;
+
+            if let Err(error) = self.update_holidays(config).await {
+                error!(
+                    error = error.deref() as &dyn StdError,
+                    "Failed to update holidays"
+                );
+            }
+        }
+    }
+
+    #[instrument(skip(self, config), fields(status))]
+    async fn update_holidays(&self, config: &HiBobConfig) -> Result<(), Error> {
+        let resp = self
+            .http_client
+            .get("https://api.hibob.com/v1/timeoff/outtoday")
+            .header("Authorization", &config.token)
+            .header("Accepts", "application/json")
+            .send()
+            .await
+            .with_context(|| "Sending HTTP /join request")?;
+
+        Span::current().record("status", &resp.status().as_u16());
+
+        info!(status = resp.status().as_u16(), "Got holidays response");
+
+        if !resp.status().is_success() {
+            bail!(
+                "Got non-2xx from /timeoff/outtoday response: {}",
+                resp.status()
+            );
+        }
+
+        let parsed_response: HiBobOutResponse = resp.json().await?;
+
+        let mut people_out = Vec::new();
+        let today = Utc::today().naive_utc();
+
+        for field in parsed_response.outs {
+            if (field.start_date == today && field.start_date_portion != "all_day")
+                || (field.end_date == today && field.end_date_portion != "all_day")
+            {
+                continue;
+            }
+
+            if field.start_date <= today && today <= field.end_date {
+                people_out.push(field.employee_email);
+            }
+        }
+
+        self.database.set_out_today(&people_out).await?;
 
         Ok(())
     }

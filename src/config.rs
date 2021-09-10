@@ -7,6 +7,8 @@ pub struct Config {
     pub database: DatabaseConfig,
     pub matrix: MatrixConfig,
 
+    pub hibob: Option<HiBobConfig>,
+
     #[serde(default)]
     pub app: AppConfig,
 }
@@ -26,4 +28,9 @@ pub struct MatrixConfig {
 pub struct AppConfig {
     pub bind_addr: Option<String>,
     pub resource_directory: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct HiBobConfig {
+    pub token: String,
 }
