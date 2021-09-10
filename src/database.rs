@@ -707,7 +707,7 @@ impl Database {
                     SELECT DISTINCT ON (reminder_id) reminders.calendar_id, reminders.user_id, reminder_id, room,
                         minutes_before, attendee_editable, template
                     FROM (
-                        SELECT user_id, calendar_id, event_id, email(UNNEST(attendees)) AS attendee
+                        SELECT user_id, calendar_id, event_id, attendees
                         FROM events
                         INNER JOIN calendars USING (calendar_id)
                         WHERE event_id = $1
@@ -716,7 +716,7 @@ impl Database {
                     LEFT JOIN email_to_matrix_id USING (matrix_id)
                     INNER JOIN reminders USING (event_id)
                     WHERE c.calendar_id = $2
-                        AND (reminders.calendar_id = $2 OR (attendee_editable AND attendee = email))
+                        AND (reminders.calendar_id = $2 OR (attendee_editable AND email IN (SELECT email(UNNEST(attendees)))))
                     "#,
                 &[&event_id, &calendar_id],
             )
