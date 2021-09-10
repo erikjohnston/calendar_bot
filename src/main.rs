@@ -24,7 +24,7 @@ use app::App;
 use database::Database;
 use tera::Tera;
 use tokio::task::spawn_local;
-use tracing_subscriber::fmt::format::FmtSpan;
+use tracing_subscriber::fmt::time::ChronoUtc;
 
 /// Default markdown template used for generating reminder events.
 const DEFAULT_TEMPLATE: &str = r#"
@@ -38,7 +38,8 @@ const DEFAULT_TEMPLATE: &str = r#"
 #[actix_web::main]
 async fn main() -> Result<(), Error> {
     tracing_subscriber::fmt::fmt()
-        .with_span_events(FmtSpan::CLOSE)
+        .json()
+        .with_timer(ChronoUtc::rfc3339())
         .init();
 
     let matches = clap::app_from_crate!()

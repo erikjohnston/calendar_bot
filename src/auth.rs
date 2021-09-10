@@ -1,7 +1,7 @@
 use std::{fmt::Display, ops::Deref, pin::Pin};
 
 use actix_web::{
-    error::ErrorInternalServerError, web::Data, Error, FromRequest, HttpMessage, HttpResponse,
+    error::ErrorInternalServerError, web::Data, Error, FromRequest, HttpResponse,
     ResponseError,
 };
 use futures::{Future, FutureExt};

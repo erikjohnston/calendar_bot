@@ -751,7 +751,7 @@ pub async fn run_server(app: App) -> Result<(), Error> {
 
     HttpServer::new(move || {
         actix_web::App::new()
-            .data(app.clone())
+            .app_data(Data::new(app.clone()))
             .wrap(TracingLogger::default())
             .wrap(Logger::default())
             .service(index)
