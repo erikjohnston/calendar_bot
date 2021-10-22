@@ -1,8 +1,7 @@
 use std::{fmt::Display, ops::Deref, pin::Pin};
 
 use actix_web::{
-    error::ErrorInternalServerError, web::Data, Error, FromRequest, HttpResponse,
-    ResponseError,
+    error::ErrorInternalServerError, web::Data, Error, FromRequest, HttpResponse, ResponseError,
 };
 use futures::{Future, FutureExt};
 
@@ -21,8 +20,6 @@ impl Deref for AuthedUser {
 }
 
 impl FromRequest for AuthedUser {
-    type Config = ();
-
     type Error = Error;
 
     type Future = Pin<Box<dyn Future<Output = Result<Self, Self::Error>>>>;
