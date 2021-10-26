@@ -952,4 +952,21 @@ impl Database {
 
         Ok(rows.into_iter().map(|row| row.get(0)).collect())
     }
+
+    pub async fn add_matrix_id(&self, email: &str, matrix_id: &str) -> Result<bool, Error> {
+        let db_conn = self.db_pool.get().await?;
+
+        let ret = db_conn
+            .query_opt(
+                r#"
+                INSERT INTO email_to_matrix_id (email, matrix_id) VALUES ($1, $2)
+                ON CONFLICT DO NOTHING
+                RETURNING 1
+                "#,
+                &[&email, &matrix_id],
+            )
+            .await?;
+
+        Ok(ret.is_some())
+    }
 }

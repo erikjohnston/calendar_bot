@@ -60,6 +60,28 @@ struct HiBobOutResponseField {
     end_date_portion: String,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+struct HiBobPeopleResponse {
+    employees: Vec<HiBobPeopleResponseField>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct HiBobPeopleResponseField {
+    email: String,
+    personal: HiBobPeoplePersonalResponseField,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct HiBobPeoplePersonalResponseField {
+    communication: HiBobPeoplePersonalCommunicationResponseField,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct HiBobPeoplePersonalCommunicationResponseField {
+    #[serde(rename = "skypeUsername")]
+    skype_username: Option<String>,
+}
+
 impl Reminders {
     /// Get how long until the next reminder needs to be sent.
     fn get_time_to_next(&self) -> Option<Duration> {
@@ -471,14 +493,21 @@ impl App {
         let mut interval = interval(Duration::minutes(5).to_std().expect("std duration"));
 
         loop {
-            interval.tick().await;
-
             if let Err(error) = self.update_holidays(config).await {
                 error!(
                     error = error.deref() as &dyn StdError,
                     "Failed to update holidays"
                 );
             }
+
+            if let Err(error) = self.update_email_mappings(config).await {
+                error!(
+                    error = error.deref() as &dyn StdError,
+                    "Failed to update email mappings"
+                );
+            }
+
+            interval.tick().await;
         }
     }
 
@@ -525,4 +554,82 @@ impl App {
 
         Ok(())
     }
+
+    #[instrument(skip(self, config), fields(status))]
+    async fn update_email_mappings(&self, config: &HiBobConfig) -> Result<(), Error> {
+        let resp = self
+            .http_client
+            .get("https://api.hibob.com/v1/people")
+            .header("Authorization", &config.token)
+            .header("Accepts", "application/json")
+            .send()
+            .await
+            .with_context(|| "Sending HTTP /join request")?;
+
+        Span::current().record("status", &resp.status().as_u16());
+
+        info!(status = resp.status().as_u16(), "Got people response");
+
+        if !resp.status().is_success() {
+            bail!("Got non-2xx from /people response: {}", resp.status());
+        }
+
+        let parsed_response: HiBobPeopleResponse = resp.json().await?;
+
+        for employee in &parsed_response.employees {
+            if let Some(matrix_id) = employee.personal.communication.skype_username.as_deref() {
+                if is_likely_a_valid_user_id(matrix_id) {
+                    let email = employee.email.as_str();
+                    let new = self.database.add_matrix_id(email, matrix_id).await?;
+
+                    if new {
+                        info!(email, matrix_id, "Added new mapping");
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+}
+
+/// Checks if the string is likely a valid user ID.
+///
+/// Doesn't bother to fully check the domain part is valid
+fn is_likely_a_valid_user_id(user_id: &str) -> bool {
+    if user_id.len() < 2 {
+        return false;
+    }
+
+    let sigil = &user_id[0..1];
+
+    if sigil != "@" {
+        return false;
+    }
+
+    let (local_part, domain) = if let Some(t) = user_id[1..].split_once(':') {
+        t
+    } else {
+        return false;
+    };
+
+    // Assert that the localpart is printable ascii characters only (we don't
+    // need to check it doesn't contain a colon, due to the above split). This
+    // matches "historical" user IDs.
+    if !local_part.bytes().all(|c| (0x21..=0x7E).contains(&c)) {
+        return false;
+    }
+
+    // We don't bother doing a proper check of the domain part, as that is a bit
+    // of a faff, so instead we do some rough checks like it doesn't contain
+    // whitespace, etc.
+    if !domain.chars().all(|c| {
+        !c.is_whitespace()
+            && !c.is_ascii_uppercase()
+            && (c.is_ascii_alphanumeric() || "[]:.".contains(c))
+    }) {
+        return false;
+    }
+
+    true
 }
