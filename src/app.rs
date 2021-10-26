@@ -493,6 +493,8 @@ impl App {
         let mut interval = interval(Duration::minutes(5).to_std().expect("std duration"));
 
         loop {
+            interval.tick().await;
+
             if let Err(error) = self.update_holidays(config).await {
                 error!(
                     error = error.deref() as &dyn StdError,
@@ -506,8 +508,6 @@ impl App {
                     "Failed to update email mappings"
                 );
             }
-
-            interval.tick().await;
         }
     }
 
