@@ -739,6 +739,86 @@ async fn login_post_html(
     Ok(response)
 }
 
+#[derive(Debug, Clone, Deserialize)]
+struct ChangePasswordFormState {
+    state: Option<String>,
+}
+
+#[get("/change_password")]
+async fn change_password_html(
+    app: Data<App>,
+    _user: AuthedUser,
+    query: Query<ChangePasswordFormState>,
+) -> Result<impl Responder, actix_web::Error> {
+    let state = match query.into_inner().state.as_deref() {
+        Some("saved") => Some("saved"),
+        Some("wrong_password") => Some("wrong_password"),
+        Some("password_mismatch") => Some("password_mismatch"),
+        _ => None,
+    };
+
+    let context = json!({
+        "form_state": state,
+    });
+
+    let result = app
+        .templates
+        .render(
+            "change_password.html.j2",
+            &tera::Context::from_serialize(&context).map_err(ErrorInternalServerError)?,
+        )
+        .map_err(ErrorInternalServerError)?;
+
+    let mut builder = HttpResponse::Ok();
+    builder.insert_header(("Content-Type", "text/html; charset=utf-8"));
+    let response = builder.body(result);
+
+    Ok(response)
+}
+
+#[derive(Debug, Deserialize, Clone)]
+struct ChangePasswordForm {
+    old_password: String,
+    new_password: String,
+    confirm_password: String,
+}
+
+#[post("/change_password")]
+async fn change_password_post_html(
+    app: Data<App>,
+    data: Form<ChangePasswordForm>,
+    user: AuthedUser,
+) -> Result<impl Responder, actix_web::Error> {
+    if data.new_password != data.confirm_password {
+        return Ok(HttpResponse::SeeOther()
+            .insert_header(("Location", "/change_password?state=password_mismatch"))
+            .finish());
+    }
+
+    let right_password = app
+        .database
+        .check_password_user_id(user.0, &data.old_password)
+        .await
+        .map_err(ErrorInternalServerError)?;
+
+    let response = if right_password.is_some() {
+        app.database
+            .change_password(user.0, &data.new_password)
+            .await
+            .map_err(ErrorInternalServerError)?;
+
+        HttpResponse::SeeOther()
+            .insert_header(("Location", "/change_password?state=saved"))
+            .finish()
+    } else {
+        HttpResponse::SeeOther()
+            .insert_header(("Location", "/change_password?state=wrong_password"))
+            .finish()
+    };
+
+    Ok(response)
+}
+
 /// Run the HTTP server.
 pub async fn run_server(app: App) -> Result<(), Error> {
     let bind_addr = app
@@ -770,6 +850,8 @@ pub async fn run_server(app: App) -> Result<(), Error> {
             .service(delete_calendar_html)
             .service(login_get_html)
             .service(login_post_html)
+            .service(change_password_html)
+            .service(change_password_post_html)
     })
     .bind(&bind_addr)?
     .run()

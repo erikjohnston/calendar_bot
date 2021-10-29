@@ -891,6 +891,47 @@ impl Database {
         }
     }
 
+    pub async fn check_password_user_id(
+        &self,
+        user_id: i64,
+        password: &str,
+    ) -> Result<Option<()>, Error> {
+        let db_conn = self.db_pool.get().await?;
+
+        let row = db_conn
+            .query_opt(
+                "SELECT password_hash FROM users WHERE user_id = $1",
+                &[&user_id],
+            )
+            .await?;
+
+        let hash = if let Some(row) = row {
+            let hash: String = row.try_get("password_hash")?;
+            hash
+        } else {
+            return Ok(None);
+        };
+
+        if bcrypt::verify(password, &hash)? {
+            Ok(Some(()))
+        } else {
+            Ok(None)
+        }
+    }
+
+    pub async fn change_password(&self, user_id: i64, password: &str) -> Result<(), Error> {
+        let db_conn = self.db_pool.get().await?;
+
+        db_conn
+            .execute(
+                "UPDATE users SET password_hash = $1 WHERE user_id = $2",
+                &[&password, &user_id],
+            )
+            .await?;
+
+        Ok(())
+    }
+
     pub async fn add_access_token(
         &self,
         user_id: i64,

@@ -124,3 +124,7 @@ a {
     text-decoration: none;
     color: white;
 }
+
+#sidebar hr {
+    border-color: #5e075e;
+}
