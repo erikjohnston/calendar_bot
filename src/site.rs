@@ -150,6 +150,45 @@ async fn list_events_html(
     Ok(response)
 }
 
+#[get("/reminders")]
+async fn list_events_wit_reminders_html(
+    app: Data<App>,
+    user: AuthedUser,
+) -> Result<impl Responder, actix_web::Error> {
+    let events = app
+        .database
+        .get_events_with_reminders(*user)
+        .await
+        .map_err(ErrorInternalServerError)?;
+
+    let context = json!({
+        "events": events.iter().map(|(event, instances)| {
+            json!({
+                "event_id": &event.event_id,
+                "calendar_id": &event.calendar_id,
+                "summary": &event.summary,
+                "description": &event.description,
+                "location": &event.location,
+                "next_dates": instances.iter().map(|i| i.date.to_rfc3339()).collect_vec(),
+            })
+        }).collect_vec(),
+    });
+
+    let result = app
+        .templates
+        .render(
+            "events.html.j2",
+            &tera::Context::from_serialize(&context).map_err(ErrorInternalServerError)?,
+        )
+        .map_err(ErrorInternalServerError)?;
+
+    let mut builder = HttpResponse::Ok();
+    builder.insert_header(("Content-Type", "text/html; charset=utf-8"));
+    let response = builder.body(result);
+
+    Ok(response)
+}
+
 #[get("/calendars")]
 async fn list_calendars_html(
     app: Data<App>,
@@ -836,6 +875,7 @@ pub async fn run_server(app: App) -> Result<(), Error> {
             .wrap(Logger::default())
             .service(index)
             .service(list_events_html)
+            .service(list_events_wit_reminders_html)
             .service(list_events_calendar_html)
             .service(new_reminder_html)
             .service(get_reminder_html)

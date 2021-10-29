@@ -612,6 +612,27 @@ impl Database {
         Ok(events)
     }
 
+    /// Get all events for user that have reminders
+    pub async fn get_events_with_reminders(
+        &self,
+        user_id: i64,
+    ) -> Result<Vec<(Event, Vec<EventInstance>)>, Error> {
+        let events = self.get_events_for_user(user_id).await?;
+
+        let mut filtered_events = Vec::with_capacity(events.len());
+        for (event, instance) in events {
+            let reminders = self
+                .get_reminders_for_event(event.calendar_id, &event.event_id)
+                .await?;
+
+            if !reminders.is_empty() {
+                filtered_events.push((event, instance))
+            }
+        }
+
+        Ok(filtered_events)
+    }
+
     /// Get the specified event
     pub async fn get_event_in_calendar(
         &self,
