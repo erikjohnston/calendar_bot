@@ -158,6 +158,7 @@ pub fn parse_calendars_to_events(
     Ok((events, next_dates))
 }
 
+/// Parse the attendees from the event.
 fn get_attendees(event: &VEvent) -> Vec<Attendee> {
     let mut attendees = Vec::new();
 
@@ -172,6 +173,7 @@ fn get_attendees(event: &VEvent) -> Vec<Attendee> {
     attendees
 }
 
+/// Parse a attendee property.
 fn parse_to_attendee(prop: &PropertyValue<Url>) -> Option<Attendee> {
     if prop.value.scheme() != "mailto" {
         return None;

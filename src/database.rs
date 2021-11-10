@@ -138,6 +138,7 @@ impl Database {
         Ok(calendars)
     }
 
+    /// Get all calendars for a given user.
     pub async fn get_calendars_for_user(&self, user_id: i64) -> Result<Vec<Calendar>, Error> {
         let db_conn = self.db_pool.get().await?;
 
@@ -172,6 +173,7 @@ impl Database {
         Ok(calendars)
     }
 
+    /// Get a calendar by ID.
     pub async fn get_calendar(&self, calendar_id: i64) -> Result<Option<Calendar>, Error> {
         let db_conn = self.db_pool.get().await?;
 
@@ -206,6 +208,7 @@ impl Database {
         }
     }
 
+    /// Update a calendar's config.
     pub async fn update_calendar(
         &self,
         calendar_id: i64,
@@ -230,6 +233,7 @@ impl Database {
         Ok(())
     }
 
+    /// Delete a calendar.
     pub async fn delete_calendar(&self, calendar_id: i64) -> Result<(), Error> {
         let db_conn = self.db_pool.get().await?;
 
@@ -246,6 +250,7 @@ impl Database {
         Ok(())
     }
 
+    /// Add a new calendar.
     pub async fn add_calendar(
         &self,
         user_id: i64,
@@ -335,6 +340,7 @@ impl Database {
         Ok(())
     }
 
+    /// Persist a new reminder.
     pub async fn add_reminder(&self, reminder: Reminder) -> Result<(), Error> {
         let db_conn = self.db_pool.get().await?;
 
@@ -362,6 +368,7 @@ impl Database {
         Ok(())
     }
 
+    /// Update an existing reminder.
     pub async fn update_reminder(
         &self,
         calendar_id: i64,
@@ -395,6 +402,7 @@ impl Database {
         Ok(())
     }
 
+    /// Delete a specific reminder.
     pub async fn delete_reminder_in_calendar(
         &self,
         calendar_id: i64,
@@ -543,6 +551,7 @@ impl Database {
         Ok(events)
     }
 
+    /// Get all events from all a given user's calendars.
     pub async fn get_events_for_user(
         &self,
         user_id: i64,
@@ -777,6 +786,10 @@ impl Database {
         Ok(reminders)
     }
 
+    /// Get the list of users that can edit an event.
+    ///
+    /// This is the owner of the reminder, and if the `attendee_editable` flag
+    /// is set, all attendees.
     pub async fn get_users_who_can_edit_reminder(
         &self,
         reminder_id: i64,
@@ -883,6 +896,8 @@ impl Database {
         Ok(mapping)
     }
 
+    /// Check the password matches the hash in the DB for the user with given
+    /// Matrix ID.
     pub async fn check_password(
         &self,
         matrix_id: &str,
@@ -912,6 +927,7 @@ impl Database {
         }
     }
 
+    /// Check password matches the hash in the DB of the given user.
     pub async fn check_password_user_id(
         &self,
         user_id: i64,
@@ -940,19 +956,21 @@ impl Database {
         }
     }
 
-    pub async fn change_password(&self, user_id: i64, password: &str) -> Result<(), Error> {
+    /// Update the password for the users.
+    pub async fn change_password(&self, user_id: i64, password_hash: &str) -> Result<(), Error> {
         let db_conn = self.db_pool.get().await?;
 
         db_conn
             .execute(
                 "UPDATE users SET password_hash = $1 WHERE user_id = $2",
-                &[&password, &user_id],
+                &[&password_hash, &user_id],
             )
             .await?;
 
         Ok(())
     }
 
+    /// Add an access token for the user.
     pub async fn add_access_token(
         &self,
         user_id: i64,
@@ -971,6 +989,7 @@ impl Database {
         Ok(())
     }
 
+    /// Get the user associated with the access token.
     pub async fn get_user_from_token(&self, token: &str) -> Result<Option<i64>, Error> {
         let db_conn = self.db_pool.get().await?;
 
@@ -988,6 +1007,7 @@ impl Database {
         }
     }
 
+    /// Persist all emails that are on holiday today.
     pub async fn set_out_today(&self, emails: &[String]) -> Result<(), Error> {
         let mut db_conn = self.db_pool.get().await?;
 
@@ -1007,6 +1027,7 @@ impl Database {
         Ok(())
     }
 
+    /// Get all emails that are on holiday today.
     pub async fn get_out_today_emails(&self) -> Result<BTreeSet<String>, Error> {
         let db_conn = self.db_pool.get().await?;
 
@@ -1015,6 +1036,10 @@ impl Database {
         Ok(rows.into_iter().map(|row| row.get(0)).collect())
     }
 
+    /// Persist a email to matrix ID mapping.
+    ///
+    /// This does *not* overwrite existing mappings. Returns true if the new
+    /// mapping was added.
     pub async fn add_matrix_id(&self, email: &str, matrix_id: &str) -> Result<bool, Error> {
         let db_conn = self.db_pool.get().await?;
 

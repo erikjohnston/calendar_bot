@@ -164,6 +164,7 @@ impl App {
         Ok(())
     }
 
+    /// Update the given calendar we fetched from the DB.
     #[instrument(skip(self))]
     pub async fn update_calendar(&self, db_calendar: Calendar) -> Result<(), Error> {
         let calendars = fetch_calendars(
@@ -301,6 +302,8 @@ impl App {
         Ok(())
     }
 
+    /// An infinite loop that periodically triggers fetching updates for all
+    /// calendars.
     async fn update_calendar_loop(&self) {
         let mut interval = interval(Duration::minutes(5).to_std().expect("std duration"));
 
@@ -316,6 +319,8 @@ impl App {
         }
     }
 
+    /// An infinite loop that periodically pulls changes to email to Matrix ID
+    /// mappings from the DB.
     async fn update_mappings_loop(&self) {
         let mut interval = interval(Duration::minutes(5).to_std().expect("std duration"));
 
@@ -331,6 +336,7 @@ impl App {
         }
     }
 
+    /// Loop that handle sending the reminders.
     async fn reminder_loop(&self) {
         loop {
             let next_wakeup = self
@@ -483,6 +489,8 @@ impl App {
         Ok(())
     }
 
+    /// An infinite loop that periodically pulls email to Matrix ID mappings and
+    /// holidays from HiBob.
     async fn hibob_loop(&self) {
         let config = if let Some(config) = &self.config.hibob {
             config
@@ -511,6 +519,7 @@ impl App {
         }
     }
 
+    /// Fetch who is on holiday today.
     #[instrument(skip(self, config), fields(status))]
     async fn update_holidays(&self, config: &HiBobConfig) -> Result<(), Error> {
         let resp = self
@@ -555,6 +564,7 @@ impl App {
         Ok(())
     }
 
+    /// Fetch the email to Matrix ID mappings from HiBob.
     #[instrument(skip(self, config), fields(status))]
     async fn update_email_mappings(&self, config: &HiBobConfig) -> Result<(), Error> {
         let resp = self

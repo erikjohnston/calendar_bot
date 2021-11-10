@@ -21,6 +21,7 @@ use crate::app::App;
 use crate::auth::AuthedUser;
 use crate::database::Reminder;
 
+/// Root handler.
 #[get("/")]
 async fn index(_: AuthedUser) -> impl Responder {
     let mut builder = HttpResponse::SeeOther();
@@ -28,6 +29,7 @@ async fn index(_: AuthedUser) -> impl Responder {
     builder.finish()
 }
 
+/// Asserts that the user owns the calendar
 async fn assert_user_owns_calendar(
     app: &App,
     auth_user: AuthedUser,
@@ -45,6 +47,7 @@ async fn assert_user_owns_calendar(
     }
 }
 
+/// Asserts that the user can edit the reminder
 async fn assert_user_can_edit_reminder(
     app: &App,
     auth_user: AuthedUser,
@@ -111,6 +114,7 @@ async fn list_events_calendar_html(
     Ok(response)
 }
 
+/// List all events in all calendars for the user.
 #[get("/events")]
 async fn list_events_html(
     app: Data<App>,
@@ -150,6 +154,7 @@ async fn list_events_html(
     Ok(response)
 }
 
+/// List all reminders owned by the user.
 #[get("/reminders")]
 async fn list_events_wit_reminders_html(
     app: Data<App>,
@@ -189,6 +194,7 @@ async fn list_events_wit_reminders_html(
     Ok(response)
 }
 
+/// List all calendars for the user.
 #[get("/calendars")]
 async fn list_calendars_html(
     app: Data<App>,
@@ -219,11 +225,13 @@ async fn list_calendars_html(
     Ok(response)
 }
 
+/// Used to parse url that may have a `state` query param.
 #[derive(Debug, Clone, Deserialize)]
 struct EventFormState {
     state: Option<String>,
 }
 
+/// Create a new reminder
 #[get("/event/{calendar_id}/{event_id}/new_reminder")]
 async fn new_reminder_html(
     app: Data<App>,
@@ -281,6 +289,7 @@ async fn new_reminder_html(
     Ok(response)
 }
 
+/// Get an existing reminder
 #[get("/event/{calendar_id}/{event_id}/reminder/{reminder_id}")]
 async fn get_reminder_html(
     app: Data<App>,
@@ -351,6 +360,7 @@ async fn get_reminder_html(
     Ok(response)
 }
 
+/// Get an event.
 #[get("/event/{calendar_id}/{event_id}")]
 async fn get_event_html(
     app: Data<App>,
@@ -415,6 +425,7 @@ async fn get_event_html(
     Ok(response)
 }
 
+/// Delete a reminder
 #[post("/event/{calendar_id}/{event_id}/delete_reminder")]
 async fn delete_reminder_html(
     app: Data<App>,
@@ -447,6 +458,7 @@ async fn delete_reminder_html(
     Ok(response)
 }
 
+/// Form body for updating/adding a reminder
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct UpdateReminderForm {
     pub reminder_id: Option<i64>,
@@ -457,6 +469,7 @@ pub struct UpdateReminderForm {
     pub attendee_editable: Option<String>, // A checkbox, so `Some()` if checked, `None` if not.
 }
 
+/// Add or update a reminder.
 #[post("/event/{calendar_id}/{event_id}/reminder")]
 async fn upsert_reminder_html(
     app: Data<App>,
@@ -520,6 +533,7 @@ async fn upsert_reminder_html(
     Ok(response)
 }
 
+/// Get calendar info
 #[get("/calendar/{calendar_id}")]
 async fn get_calendar_html(
     app: Data<App>,
@@ -554,6 +568,7 @@ async fn get_calendar_html(
     Ok(response)
 }
 
+/// Add new calendar
 #[get("/calendar/new")]
 async fn new_calendar_html(
     app: Data<App>,
@@ -576,6 +591,7 @@ async fn new_calendar_html(
     Ok(response)
 }
 
+/// Form body for editing a calendar's config
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct UpdateCalendarForm {
     pub name: String,
@@ -584,6 +600,7 @@ pub struct UpdateCalendarForm {
     pub password: Option<String>,
 }
 
+/// Edit a calendar's config.
 #[post("/calendar/{calendar_id}/edit")]
 async fn edit_calendar_html(
     app: Data<App>,
@@ -645,6 +662,7 @@ async fn edit_calendar_html(
     Ok(response)
 }
 
+/// Delete a calendar
 #[post("/calendar/{calendar_id}/delete")]
 async fn delete_calendar_html(
     app: Data<App>,
@@ -667,6 +685,7 @@ async fn delete_calendar_html(
     Ok(response)
 }
 
+/// Add a new calendar page.
 #[post("/calendar/new")]
 async fn add_new_calendar_html(
     app: Data<App>,
@@ -711,6 +730,7 @@ async fn add_new_calendar_html(
     Ok(response)
 }
 
+/// Login page
 #[get("/login")]
 async fn login_get_html(app: Data<App>) -> Result<impl Responder, actix_web::Error> {
     let context = json!({});
@@ -730,12 +750,14 @@ async fn login_get_html(app: Data<App>) -> Result<impl Responder, actix_web::Err
     Ok(response)
 }
 
+/// Form body for logging in.
 #[derive(Debug, Deserialize, Clone)]
 struct LoginForm {
     user_name: String,
     password: String,
 }
 
+/// Login
 #[post("/login")]
 async fn login_post_html(
     app: Data<App>,
@@ -778,16 +800,12 @@ async fn login_post_html(
     Ok(response)
 }
 
-#[derive(Debug, Clone, Deserialize)]
-struct ChangePasswordFormState {
-    state: Option<String>,
-}
-
+/// Change password page
 #[get("/change_password")]
 async fn change_password_html(
     app: Data<App>,
     _user: AuthedUser,
-    query: Query<ChangePasswordFormState>,
+    query: Query<EventFormState>,
 ) -> Result<impl Responder, actix_web::Error> {
     let state = match query.into_inner().state.as_deref() {
         Some("saved") => Some("saved"),
@@ -815,6 +833,7 @@ async fn change_password_html(
     Ok(response)
 }
 
+/// Form body for changing password
 #[derive(Debug, Deserialize, Clone)]
 struct ChangePasswordForm {
     old_password: String,
@@ -822,6 +841,7 @@ struct ChangePasswordForm {
     confirm_password: String,
 }
 
+/// Change password
 #[post("/change_password")]
 async fn change_password_post_html(
     app: Data<App>,
