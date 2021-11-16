@@ -957,7 +957,10 @@ impl Database {
     }
 
     /// Update the password for the users.
-    pub async fn change_password(&self, user_id: i64, password_hash: &str) -> Result<(), Error> {
+    pub async fn change_password(&self, user_id: i64, password: &str) -> Result<(), Error> {
+        let password = password.to_string();
+        let password_hash = tokio::task::spawn_blocking(|| bcrypt::hash(password, 12)).await??;
+
         let db_conn = self.db_pool.get().await?;
 
         db_conn
