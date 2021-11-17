@@ -3,7 +3,7 @@
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::ops::Deref;
 
-use anyhow::Error;
+use anyhow::{Context, Error};
 use chrono::{DateTime, Duration, FixedOffset, Utc};
 use postgres_types::{FromSql, ToSql};
 use serde::{Deserialize, Serialize};
@@ -908,8 +908,8 @@ impl Database {
 
         let (user_id, hash) = if let Some(row) = row {
             let user_id: i64 = row.try_get(0)?;
-            let hash: String = row.try_get(1)?;
-            (user_id, hash)
+            let hash: Option<String> = row.try_get(1)?;
+            (user_id, hash.context("No password found")?)
         } else {
             return Ok(None);
         };
@@ -937,8 +937,9 @@ impl Database {
             .await?;
 
         let hash = if let Some(row) = row {
-            let hash: String = row.try_get("password_hash")?;
-            hash
+            let hash: Option<String> = row.try_get("password_hash")?;
+
+            hash.context("No password found")?
         } else {
             return Ok(None);
         };
