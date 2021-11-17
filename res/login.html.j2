@@ -55,6 +55,14 @@
                 <input type="submit" value="Login" />
             </form>
         </div>
+        {% if sso_name %}
+        <hr />
+        <div>
+            <form action="/sso_redirect" method="get">
+                <center><input type="submit" value="Login with {{ sso_name }} SSO" /></center>
+            </form>
+        </div>
+        {% endif %}
     </div>
 
 </body>

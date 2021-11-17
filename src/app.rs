@@ -22,6 +22,13 @@ use futures::future;
 use handlebars::Handlebars;
 use ics_parser::property::EndCondition;
 use itertools::Itertools;
+use openidconnect::{
+    core::{CoreAuthenticationFlow, CoreClient, CoreProviderMetadata},
+    reqwest::async_http_client,
+    AccessTokenHash, AuthorizationCode, ClientId, ClientSecret, CsrfToken, IssuerUrl, Nonce,
+    OAuth2TokenResponse, PkceCodeChallenge, PkceCodeVerifier, RedirectUrl, Scope, TokenResponse,
+};
+use rand::{distributions::Alphanumeric, Rng};
 use serde::Deserialize;
 use serde_json::json;
 use tera::Tera;
@@ -30,7 +37,40 @@ use tokio::{
     time::{interval, sleep},
 };
 use tracing::{error, info, instrument, Span};
+use url::Url;
 use urlencoding::encode;
+
+/// The type of the OpenID Connect client.
+type OpenIDClient = openidconnect::Client<
+    openidconnect::EmptyAdditionalClaims,
+    openidconnect::core::CoreAuthDisplay,
+    openidconnect::core::CoreGenderClaim,
+    openidconnect::core::CoreJweContentEncryptionAlgorithm,
+    openidconnect::core::CoreJwsSigningAlgorithm,
+    openidconnect::core::CoreJsonWebKeyType,
+    openidconnect::core::CoreJsonWebKeyUse,
+    openidconnect::core::CoreJsonWebKey,
+    openidconnect::core::CoreAuthPrompt,
+    openidconnect::StandardErrorResponse<openidconnect::core::CoreErrorResponseType>,
+    openidconnect::StandardTokenResponse<
+        openidconnect::IdTokenFields<
+            openidconnect::EmptyAdditionalClaims,
+            openidconnect::EmptyExtraTokenFields,
+            openidconnect::core::CoreGenderClaim,
+            openidconnect::core::CoreJweContentEncryptionAlgorithm,
+            openidconnect::core::CoreJwsSigningAlgorithm,
+            openidconnect::core::CoreJsonWebKeyType,
+        >,
+        openidconnect::core::CoreTokenType,
+    >,
+    openidconnect::core::CoreTokenType,
+    openidconnect::StandardTokenIntrospectionResponse<
+        openidconnect::EmptyExtraTokenFields,
+        openidconnect::core::CoreTokenType,
+    >,
+    openidconnect::core::CoreRevocableToken,
+    openidconnect::StandardErrorResponse<openidconnect::RevocationErrorResponseType>,
+>;
 
 /// Inner type for [`Reminders`]
 type ReminderInner = Arc<Mutex<VecDeque<(DateTime<Utc>, ReminderInstance)>>>;
@@ -133,9 +173,52 @@ pub struct App {
     pub reminders: Reminders,
     pub email_to_matrix_id: Arc<Mutex<BTreeMap<String, String>>>,
     pub templates: Tera,
+    sso_client: Option<OpenIDClient>,
 }
 
 impl App {
+    pub async fn new(config: Config, database: Database, templates: Tera) -> Result<Self, Error> {
+        let notify_db_update = Default::default();
+        let reminders = Default::default();
+        let email_to_matrix_id = Default::default();
+        let http_client = Default::default();
+
+        // Set up SSO
+        let sso_client = if let Some(sso_config) = &config.sso {
+            let provider_metadata = CoreProviderMetadata::discover_async(
+                IssuerUrl::new(sso_config.issuer_url.clone())?,
+                async_http_client,
+            )
+            .await?;
+
+            let client = CoreClient::from_provider_metadata(
+                provider_metadata,
+                ClientId::new(sso_config.client_id.clone()),
+                sso_config.client_secret.clone().map(ClientSecret::new),
+            )
+            // Set the URL the user will be redirected to after the authorization process.
+            .set_redirect_uri(RedirectUrl::new(format!(
+                "{}/sso_callback",
+                &sso_config.base_url
+            ))?);
+
+            Some(client)
+        } else {
+            None
+        };
+
+        Ok(Self {
+            config,
+            http_client,
+            database,
+            notify_db_update,
+            reminders,
+            email_to_matrix_id,
+            templates,
+            sso_client,
+        })
+    }
+
     /// Start the background jobs, including sending reminders and updating calendars.
     pub async fn run(self) {
         tokio::join!(
@@ -600,6 +683,102 @@ impl App {
         }
 
         Ok(())
+    }
+
+    /// Begin a new login with SSO session, returning the URL to redirect clients to.
+    pub async fn start_login_via_sso(&self) -> Result<Url, Error> {
+        let sso_client = self.sso_client.as_ref().context("SSO not configured")?;
+        let sso_config = self.config.sso.as_ref().context("SSO not configured")?;
+
+        // Generate a PKCE challenge.
+        let (pkce_challenge, pkce_verifier) = PkceCodeChallenge::new_random_sha256();
+
+        let mut request = sso_client
+            .authorize_url(
+                CoreAuthenticationFlow::AuthorizationCode,
+                CsrfToken::new_random,
+                Nonce::new_random,
+            )
+            // Set the PKCE code challenge.
+            .set_pkce_challenge(pkce_challenge);
+
+        // Set the desired scopes.
+        for scope in &sso_config.scopes {
+            request = request.add_scope(Scope::new(scope.to_string()));
+        }
+
+        // Generate the full authorization URL.
+        let (auth_url, csrf_token, nonce) = request.url();
+
+        self.database
+            .add_sso_session(csrf_token.secret(), nonce.secret(), pkce_verifier.secret())
+            .await?;
+
+        Ok(auth_url)
+    }
+
+    /// Finish logging in via SSO, returning the email.
+    pub async fn finish_login_via_sso(
+        &self,
+        state: String,
+        auth_code: String,
+    ) -> Result<String, Error> {
+        let sso_client = self.sso_client.as_ref().context("SSO not configured")?;
+
+        let (nonce_str, code_verifier) = self
+            .database
+            .claim_sso_session(&state)
+            .await?
+            .context("Unknown SSO session")?;
+        let nonce = Nonce::new(nonce_str);
+        let pkce_verifier = PkceCodeVerifier::new(code_verifier);
+
+        let token_response = sso_client
+            .exchange_code(AuthorizationCode::new(auth_code))
+            // Set the PKCE code verifier.
+            .set_pkce_verifier(pkce_verifier)
+            .request_async(async_http_client)
+            .await?;
+
+        // Extract the ID token claims after verifying its authenticity and nonce.
+        let id_token = token_response
+            .id_token()
+            .context("Server did not return an ID token")?;
+        let claims = id_token.claims(&sso_client.id_token_verifier(), &nonce)?;
+
+        // Verify the access token hash to ensure that the access token hasn't been substituted for
+        // another user's.
+        if let Some(expected_access_token_hash) = claims.access_token_hash() {
+            let actual_access_token_hash = AccessTokenHash::from_token(
+                token_response.access_token(),
+                &id_token.signing_alg()?,
+            )?;
+            if actual_access_token_hash != *expected_access_token_hash {
+                bail!("Invalid access token");
+            }
+        }
+
+        let email = claims
+            .email()
+            .map(|email| email.as_str())
+            .context("SSO didn't return an email")?;
+
+        Ok(email.to_string())
+    }
+
+    /// Generate and persist a new access token for the user.
+    pub async fn add_access_token(&self, user_id: i64) -> Result<String, Error> {
+        let token: String = rand::thread_rng()
+            .sample_iter(Alphanumeric)
+            .take(16)
+            .map(char::from)
+            .collect();
+
+        self.database
+            .add_access_token(user_id, &token, Utc::now() + Duration::days(7))
+            .await?;
+
+        Ok(token)
     }
 }
 

@@ -750,9 +750,8 @@ impl Database {
                             -- Either the event is in their own calendar...
                             reminders.calendar_id = $2
                             --- Or the reminder is attendee editable and they are an attendee
-                            OR (attendee_editable AND users.matrix_id IN (
-                                SELECT e.matrix_id FROM UNNEST(attendees) AS a
-                                INNER JOIN email_to_matrix_id AS e USING (email)
+                            OR (attendee_editable AND users.email IN (
+                                SELECT email FROM UNNEST(attendees)
                             ))
                         )
                     "#,
@@ -811,9 +810,8 @@ impl Database {
                             -- Either the event is in their own calendar...
                             reminders.calendar_id = c.calendar_id
                             --- Or the reminder is attendee editable and they are an attendee
-                            OR (attendee_editable AND users.matrix_id IN (
-                                SELECT e.matrix_id FROM UNNEST(attendees) AS a
-                                INNER JOIN email_to_matrix_id AS e USING (email)
+                            OR (attendee_editable AND users.email IN (
+                                SELECT email FROM UNNEST(attendees)
                             ))
                         )
                     "#,
@@ -898,17 +896,13 @@ impl Database {
 
     /// Check the password matches the hash in the DB for the user with given
     /// Matrix ID.
-    pub async fn check_password(
-        &self,
-        matrix_id: &str,
-        password: &str,
-    ) -> Result<Option<i64>, Error> {
+    pub async fn check_password(&self, email: &str, password: &str) -> Result<Option<i64>, Error> {
         let db_conn = self.db_pool.get().await?;
 
         let row = db_conn
             .query_opt(
-                "SELECT user_id, password_hash FROM users WHERE matrix_id = $1",
-                &[&matrix_id],
+                "SELECT user_id, password_hash FROM users WHERE email = $1",
+                &[&email],
             )
             .await?;
 
@@ -1058,5 +1052,85 @@ impl Database {
             .await?;
 
         Ok(ret.is_some())
+    }
+
+    /// Record a new in flight SSO session.
+    pub async fn add_sso_session(
+        &self,
+        crsf_token: &str,
+        nonce: &str,
+        code_verifier: &str,
+    ) -> Result<(), Error> {
+        let db_conn = self.db_pool.get().await?;
+
+        db_conn
+            .execute(
+                r#"
+                INSERT INTO sso_sessions (crsf_token, nonce, code_verifier) VALUES ($1, $2, $3)
+                "#,
+                &[&crsf_token, &nonce, &code_verifier],
+            )
+            .await?;
+
+        Ok(())
+    }
+
+    /// Fetch (and delete) an in flight SSO session based on the given token,
+    /// returning the stored nonce and code_verifier.
+    pub async fn claim_sso_session(
+        &self,
+        crsf_token: &str,
+    ) -> Result<Option<(String, String)>, Error> {
+        let db_conn = self.db_pool.get().await?;
+
+        let ret = db_conn
+            .query_opt(
+                r#"
+                DELETE FROM sso_sessions
+                WHERE crsf_token = $1
+                RETURNING nonce, code_verifier
+                "#,
+                &[&crsf_token],
+            )
+            .await?;
+
+        if let Some(row) = ret {
+            let nonce: String = row.get(0);
+            let code_verifier: String = row.get(1);
+
+            return Ok(Some((nonce, code_verifier)));
+        }
+
+        Ok(None)
+    }
+
+    /// Creates a new account if one doesn't exist for the email. Returns the
+    /// user ID.
+    pub async fn upsert_account(&self, email: &str) -> Result<i64, Error> {
+        let db_conn = self.db_pool.get().await?;
+
+        db_conn
+            .execute(
+                r#"
+                INSERT INTO users (email) VALUES ($1)
+                ON CONFLICT DO NOTHING
+                "#,
+                &[&email],
+            )
+            .await?;
+
+        let ret = db_conn
+            .query_one(
+                r#"
+                SELECT user_id FROM users
+                WHERE email = $1
+                "#,
+                &[&email],
+            )
+            .await?;
+
+        let user_id = ret.get("user_id");
+
+        Ok(user_id)
     }
 }

@@ -10,9 +10,9 @@ use actix_web::{
     HttpResponse, HttpServer, Responder,
 };
 use anyhow::Error;
-use chrono::{Duration, Utc};
+
 use itertools::Itertools;
-use rand::{distributions::Alphanumeric, Rng};
+
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tracing_actix_web::TracingLogger;
@@ -733,7 +733,8 @@ async fn add_new_calendar_html(
 /// Login page
 #[get("/login")]
 async fn login_get_html(app: Data<App>) -> Result<impl Responder, actix_web::Error> {
-    let context = json!({});
+    let sso_name = app.config.sso.as_ref().map(|s| &s.display_name);
+    let context = json!({ "sso_name": sso_name });
 
     let result = app
         .templates
@@ -770,19 +771,13 @@ async fn login_post_html(
         .map_err(ErrorInternalServerError)?;
 
     let response = if let Some(user_id) = user_id {
-        let token: String = rand::thread_rng()
-            .sample_iter(Alphanumeric)
-            .take(16)
-            .map(char::from)
-            .collect();
-
-        app.database
-            .add_access_token(user_id, &token, Utc::now() + Duration::days(7))
+        let token = app
+            .add_access_token(user_id)
             .await
             .map_err(ErrorInternalServerError)?;
 
         let cookie = Cookie::build("token", token)
-            .same_site(SameSite::Strict)
+            .same_site(SameSite::Lax)
             .max_age(time::Duration::days(7))
             .http_only(true)
             .finish();
@@ -878,6 +873,62 @@ async fn change_password_post_html(
     Ok(response)
 }
 
+/// Redirect to SSO for login, if configured.
+#[get("/sso_redirect")]
+async fn sso_redirect(app: Data<App>) -> Result<impl Responder, actix_web::Error> {
+    let auth_url = app
+        .start_login_via_sso()
+        .await
+        .map_err(ErrorInternalServerError)?;
+
+    let response = HttpResponse::TemporaryRedirect()
+        .insert_header(("Location", auth_url.to_string()))
+        .finish();
+
+    Ok(response)
+}
+
+/// The `state` query param for SSO requests.
+#[derive(Debug, Deserialize, Clone)]
+struct SsoStateParam {
+    state: String,
+    code: String,
+}
+
+/// Finish SSO auth.
+#[get("/sso_callback")]
+async fn sso_auth(
+    app: Data<App>,
+    query: Query<SsoStateParam>,
+) -> Result<impl Responder, actix_web::Error> {
+    let email = app
+        .finish_login_via_sso(query.state.clone(), query.code.clone())
+        .await
+        .map_err(ErrorInternalServerError)?;
+
+    let user_id = app
+        .database
+        .upsert_account(&email)
+        .await
+        .map_err(ErrorInternalServerError)?;
+
+    let token = app
+        .add_access_token(user_id)
+        .await
+        .map_err(ErrorInternalServerError)?;
+
+    let cookie = Cookie::build("token", token)
+        .same_site(SameSite::Lax)
+        .max_age(time::Duration::days(7))
+        .http_only(true)
+        .finish();
+
+    Ok(HttpResponse::SeeOther()
+        .insert_header(("Location", "/calendars"))
+        .cookie(cookie)
+        .finish())
+}
+
 /// Run the HTTP server.
 pub async fn run_server(app: App) -> Result<(), Error> {
     let bind_addr = app
@@ -912,6 +963,8 @@ pub async fn run_server(app: App) -> Result<(), Error> {
             .service(login_post_html)
             .service(change_password_html)
             .service(change_password_post_html)
+            .service(sso_redirect)
+            .service(sso_auth)
     })
     .bind(&bind_addr)?
     .run()

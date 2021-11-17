@@ -33,6 +33,7 @@ rand = "0.8.3"
 time = "0.2.25"
 urlencoding = "1.1.1"
 url = "2.2.2"
+openidconnect = "2.1.0"
 
 [profile.release]
 debug = true

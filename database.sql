@@ -54,10 +54,10 @@ CREATE INDEX ON reminders(event_id);
 CREATE TABLE users (
     user_id BIGSERIAL PRIMARY KEY,
     password_hash TEXT,
-    matrix_id TEXT NOT NULL
+    email TEXT NOT NULL
 );
 
-CREATE UNIQUE INDEX ON users(matrix_id);
+CREATE UNIQUE INDEX ON users(email);
 
 
 CREATE TABLE email_to_matrix_id (
@@ -82,3 +82,12 @@ CREATE TABLE out_today (
 );
 
 CREATE UNIQUE INDEX ON out_today ( email );
+
+
+CREATE TABLE sso_sessions (
+    crsf_token TEXT NOT NULL,
+    nonce TEXT NOT NULL,
+    code_verifier TEXT NOT NULL
+);
+
+CREATE UNIQUE INDEX ON sso_sessions(crsf_token);

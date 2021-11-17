@@ -56,8 +56,6 @@ async fn main() -> Result<(), Error> {
         toml::from_slice(&fs::read(&config_file).with_context(|| "Reading config file")?)
             .with_context(|| "Parsing config file")?;
 
-    let http_client = reqwest::Client::new();
-
     let manager = bb8_postgres::PostgresConnectionManager::new_from_stringlike(
         &config.database.connection_string,
         NoTls,
@@ -69,16 +67,7 @@ async fn main() -> Result<(), Error> {
 
     let templates = Tera::new(&resource_directory.join("*").to_string_lossy())?;
 
-    let notify_db_update = Default::default();
-    let app = App {
-        config,
-        http_client,
-        database,
-        notify_db_update,
-        reminders: Default::default(),
-        email_to_matrix_id: Default::default(),
-        templates,
-    };
+    let app = App::new(config, database, templates).await?;
 
     spawn_local(app.clone().run());
 
