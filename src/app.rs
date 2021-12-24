@@ -492,30 +492,42 @@ impl App {
 
         let markdown_template = reminder.template.as_deref().unwrap_or(DEFAULT_TEMPLATE);
 
+        // We fetch both the emails and matrix IDs of people on holiday as a)
+        // not everyone has an associated matrix ID and b) the attendee email
+        // may not be using the person's canonical email.
         let out_today_emails = self.database.get_out_today_emails().await?;
+        let out_today_matrix_ids = self.database.get_out_today_matrix_ids().await?;
 
         let attendees = reminder
             .attendees
             .iter()
             .filter(|attendee| !out_today_emails.contains(&attendee.email))
-            .map(|attendee| {
+            .filter_map(|attendee| {
+                // Map attendee email to a markdown string, filtering out matrix
+                // IDs that we know are on holiday.
                 if let Some(matrix_id) = self
                     .email_to_matrix_id
                     .lock()
                     .expect("poisoned")
                     .get(&attendee.email)
                 {
-                    format!(
-                        "[{}](https://matrix.to/#/{})",
-                        attendee.common_name.as_ref().unwrap_or(matrix_id),
-                        matrix_id,
-                    )
+                    if out_today_matrix_ids.contains(matrix_id) {
+                        None
+                    } else {
+                        Some(format!(
+                            "[{}](https://matrix.to/#/{})",
+                            attendee.common_name.as_ref().unwrap_or(matrix_id),
+                            matrix_id,
+                        ))
+                    }
                 } else {
-                    attendee
-                        .common_name
-                        .as_ref()
-                        .unwrap_or(&attendee.email)
-                        .to_string()
+                    Some(
+                        attendee
+                            .common_name
+                            .as_ref()
+                            .unwrap_or(&attendee.email)
+                            .to_string(),
+                    )
                 }
             })
             .join(", ");

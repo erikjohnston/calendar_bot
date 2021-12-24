@@ -1034,6 +1034,23 @@ impl Database {
         Ok(rows.into_iter().map(|row| row.get(0)).collect())
     }
 
+    /// Get all matrix IDs that are on holiday today.
+    pub async fn get_out_today_matrix_ids(&self) -> Result<BTreeSet<String>, Error> {
+        let db_conn = self.db_pool.get().await?;
+
+        let rows = db_conn
+            .query(
+                r#"
+                SELECT matrix_id FROM out_today
+                INNER JOIN email_to_matrix_id USING (email)
+                "#,
+                &[],
+            )
+            .await?;
+
+        Ok(rows.into_iter().map(|row| row.get(0)).collect())
+    }
+
     /// Persist a email to matrix ID mapping.
     ///
     /// This does *not* overwrite existing mappings. Returns true if the new
