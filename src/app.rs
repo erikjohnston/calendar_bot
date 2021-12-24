@@ -298,14 +298,29 @@ impl App {
                     match recur.end_condition {
                         EndCondition::Count(_) | EndCondition::Infinite => {
                             // The previous event hasn't been stopped, so we don't deduplicate.
+                            info!(
+                                calendar_id = db_calendar.calendar_id,
+                                event_id = previous_event.event_id.deref(),
+                                "Found existing event that hasn't expired."
+                            );
                             continue;
                         }
                         EndCondition::Until(_) | EndCondition::UntilUtc(_) => {
                             // The previous event has been stopped, so we deduplicate.
+                            info!(
+                                calendar_id = db_calendar.calendar_id,
+                                event_id = previous_event.event_id.deref(),
+                                "Existing event has an expiry time, checking if we should deduplicate."
+                            );
                         }
                     }
                 } else {
                     // Not a recurring event, so don't need to deduplicate.
+                    info!(
+                        calendar_id = db_calendar.calendar_id,
+                        event_id = previous_event.event_id.deref(),
+                        "Found existing non-recurring event."
+                    );
                     continue;
                 }
             }
@@ -322,6 +337,12 @@ impl App {
 
                 if previous_events_by_id.contains_key(&new_event.event_id) {
                     // We've already processed the new event.
+                    info!(
+                        calendar_id = db_calendar.calendar_id,
+                        prev_event = previous_event.event_id.deref(),
+                        new_event = new_event.event_id.deref(),
+                        "Ignoring 'new_event' as its not new."
+                    );
                     continue;
                 }
 
