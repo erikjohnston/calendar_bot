@@ -638,9 +638,12 @@ impl App {
     /// Fetch who is on holiday today.
     #[instrument(skip(self, config), fields(status))]
     async fn update_holidays(&self, config: &HiBobConfig) -> Result<(), Error> {
+        let today = Utc::today().format("%Y-%m-%d").to_string();
+
         let resp = self
             .http_client
-            .get("https://api.hibob.com/v1/timeoff/outtoday")
+            .get("https://api.hibob.com/v1/timeoff/whosout")
+            .query(&[("from", &today), ("to", &today)])
             .header("Authorization", &config.token)
             .header("Accepts", "application/json")
             .send()
