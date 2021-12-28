@@ -686,7 +686,11 @@ impl App {
             }
         }
 
+        let num_people_out = people_out.len();
+
         self.database.set_out_today(&people_out).await?;
+
+        info!(num_people_out, "Updated holidays");
 
         Ok(())
     }
@@ -730,9 +734,15 @@ impl App {
             }
         }
 
-        let mut hibob_map = self.hibob_id_to_email.lock().unwrap();
+        let num_people = {
+            let mut hibob_map = self.hibob_id_to_email.lock().unwrap();
 
-        *hibob_map = new_hibob_map;
+            *hibob_map = new_hibob_map;
+
+            hibob_map.len()
+        };
+
+        info!(num_people, "Updated email mappings");
 
         Ok(())
     }
