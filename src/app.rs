@@ -36,7 +36,7 @@ use tokio::{
     sync::Notify,
     time::{interval, sleep},
 };
-use tracing::{error, info, instrument, Span};
+use tracing::{error, info, instrument, warn, Span};
 use url::Url;
 use urlencoding::encode;
 
@@ -88,8 +88,8 @@ struct HiBobOutResponse {
 
 #[derive(Debug, Clone, Deserialize)]
 struct HiBobOutResponseField {
-    #[serde(rename = "employeeEmail")]
-    employee_email: String,
+    #[serde(rename = "employeeId")]
+    employee_id: String,
     #[serde(rename = "startDate")]
     start_date: NaiveDate,
     #[serde(rename = "endDate")]
@@ -107,6 +107,7 @@ struct HiBobPeopleResponse {
 
 #[derive(Debug, Clone, Deserialize)]
 struct HiBobPeopleResponseField {
+    id: String,
     email: String,
     personal: HiBobPeoplePersonalResponseField,
 }
@@ -172,6 +173,7 @@ pub struct App {
     pub notify_db_update: Arc<Notify>,
     pub reminders: Reminders,
     pub email_to_matrix_id: Arc<Mutex<BTreeMap<String, String>>>,
+    pub hibob_id_to_email: Arc<Mutex<BTreeMap<String, String>>>,
     pub templates: Tera,
     sso_client: Option<OpenIDClient>,
 }
@@ -181,6 +183,7 @@ impl App {
         let notify_db_update = Default::default();
         let reminders = Default::default();
         let email_to_matrix_id = Default::default();
+        let hibob_id_to_email = Default::default();
         let http_client = Default::default();
 
         // Set up SSO
@@ -216,6 +219,7 @@ impl App {
             email_to_matrix_id,
             templates,
             sso_client,
+            hibob_id_to_email,
         })
     }
 
@@ -619,17 +623,17 @@ impl App {
         loop {
             interval.tick().await;
 
-            if let Err(error) = self.update_holidays(config).await {
-                error!(
-                    error = error.deref() as &dyn StdError,
-                    "Failed to update holidays"
-                );
-            }
-
             if let Err(error) = self.update_email_mappings(config).await {
                 error!(
                     error = error.deref() as &dyn StdError,
                     "Failed to update email mappings"
+                );
+            }
+
+            if let Err(error) = self.update_holidays(config).await {
+                error!(
+                    error = error.deref() as &dyn StdError,
+                    "Failed to update holidays"
                 );
             }
         }
@@ -656,7 +660,7 @@ impl App {
 
         if !resp.status().is_success() {
             bail!(
-                "Got non-2xx from /timeoff/outtoday response: {}",
+                "Got non-2xx from /timeoff/whosout response: {}",
                 resp.status()
             );
         }
@@ -674,7 +678,15 @@ impl App {
             }
 
             if field.start_date <= today && today <= field.end_date {
-                people_out.push(field.employee_email);
+                let hibob_map = self.hibob_id_to_email.lock().unwrap();
+                if let Some(employee_email) = hibob_map.get(&field.employee_id) {
+                    people_out.push(employee_email.clone());
+                } else {
+                    warn!(
+                        employee_id = field.employee_id.deref(),
+                        "Unrecognized employee_id"
+                    );
+                }
             }
         }
 
@@ -705,7 +717,11 @@ impl App {
 
         let parsed_response: HiBobPeopleResponse = resp.json().await?;
 
+        let mut new_hibob_map = BTreeMap::new();
+
         for employee in &parsed_response.employees {
+            new_hibob_map.insert(employee.id.clone(), employee.email.clone());
+
             if let Some(matrix_id) = employee.personal.communication.skype_username.as_deref() {
                 if is_likely_a_valid_user_id(matrix_id) {
                     let email = employee.email.as_str();
@@ -717,6 +733,10 @@ impl App {
                 }
             }
         }
+
+        let mut hibob_map = self.hibob_id_to_email.lock().unwrap();
+
+        *hibob_map = new_hibob_map;
 
         Ok(())
     }
