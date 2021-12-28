@@ -87,17 +87,13 @@ struct HiBobOutResponse {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct HiBobOutResponseField {
-    #[serde(rename = "employeeId")]
     employee_id: String,
-    #[serde(rename = "startDate")]
     start_date: NaiveDate,
-    #[serde(rename = "endDate")]
     end_date: NaiveDate,
-    #[serde(rename = "startDatePortion")]
-    start_date_portion: String,
-    #[serde(rename = "endDatePortion")]
-    end_date_portion: String,
+    start_portion: String,
+    end_portion: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -118,8 +114,8 @@ struct HiBobPeoplePersonalResponseField {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct HiBobPeoplePersonalCommunicationResponseField {
-    #[serde(rename = "skypeUsername")]
     skype_username: Option<String>,
 }
 
@@ -671,8 +667,8 @@ impl App {
         let today = Utc::today().naive_utc();
 
         for field in parsed_response.outs {
-            if (field.start_date == today && field.start_date_portion != "all_day")
-                || (field.end_date == today && field.end_date_portion != "all_day")
+            if (field.start_date == today && field.start_portion != "all_day")
+                || (field.end_date == today && field.end_portion != "all_day")
             {
                 continue;
             }
