@@ -873,6 +873,70 @@ async fn change_password_post_html(
     Ok(response)
 }
 
+/// Change Matrix ID page
+#[get("/change_matrix_id")]
+async fn change_matrix_id_html(
+    app: Data<App>,
+    user: AuthedUser,
+    query: Query<EventFormState>,
+) -> Result<impl Responder, actix_web::Error> {
+    let state = query.into_inner().state;
+
+    let old_matrix_id = app
+        .database
+        .get_matrix_id(user.0)
+        .await
+        .map_err(ErrorInternalServerError)?;
+
+    let context = json!({
+        "form_state": state,
+        "old_matrix_id": old_matrix_id,
+    });
+
+    let result = app
+        .templates
+        .render(
+            "change_matrix_id.html.j2",
+            &tera::Context::from_serialize(&context).map_err(ErrorInternalServerError)?,
+        )
+        .map_err(ErrorInternalServerError)?;
+
+    let mut builder = HttpResponse::Ok();
+    builder.insert_header(("Content-Type", "text/html; charset=utf-8"));
+    let response = builder.body(result);
+
+    Ok(response)
+}
+
+/// Form body for changing password
+#[derive(Debug, Deserialize, Clone)]
+struct ChangeMatrixIdForm {
+    new_matrix_id: String,
+}
+
+/// Change Matrix ID
+#[post("/change_matrix_id")]
+async fn change_matrix_id_post_html(
+    app: Data<App>,
+    data: Form<ChangeMatrixIdForm>,
+    user: AuthedUser,
+) -> Result<impl Responder, actix_web::Error> {
+    let email = app
+        .database
+        .get_email(user.0)
+        .await
+        .map_err(ErrorInternalServerError)?;
+
+    app.database
+        .replace_matrix_id(&email, &data.new_matrix_id)
+        .await
+        .map_err(ErrorInternalServerError)?;
+
+    Ok(HttpResponse::SeeOther()
+        .insert_header(("Location", "/change_matrix_id?state=saved"))
+        .finish())
+}
+
 /// Redirect to SSO for login, if configured.
 #[get("/sso_redirect")]
 async fn sso_redirect(app: Data<App>) -> Result<impl Responder, actix_web::Error> {
@@ -963,6 +1027,8 @@ pub async fn run_server(app: App) -> Result<(), Error> {
             .service(login_post_html)
             .service(change_password_html)
             .service(change_password_post_html)
+            .service(change_matrix_id_html)
+            .service(change_matrix_id_post_html)
             .service(sso_redirect)
             .service(sso_auth)
     })
