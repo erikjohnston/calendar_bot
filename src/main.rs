@@ -46,7 +46,7 @@ async fn main() -> Result<(), Error> {
                 .value_name("FILE")
                 .help("The path to the config file")
                 .takes_value(true)
-                .required(true),
+                .default_value("config.toml"),
         )
         .get_matches();
 
