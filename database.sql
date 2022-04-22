@@ -8,6 +8,12 @@ CREATE TABLE calendars (
 );
 
 
+CREATE TYPE "Attendee" AS (
+    email TEXT,
+    common_name TEXT
+);
+
+
 CREATE TABLE events (
     calendar_id bigint NOT NULL,
     event_id text NOT NULL,
@@ -19,12 +25,6 @@ CREATE TABLE events (
 );
 
 CREATE UNIQUE INDEX ON events USING btree (calendar_id, event_id);
-
-
-CREATE TYPE "Attendee" AS (
-    email TEXT,
-    common_name TEXT
-);
 
 
 CREATE TABLE next_dates (
