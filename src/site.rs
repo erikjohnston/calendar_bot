@@ -85,6 +85,12 @@ async fn list_events_calendar_html(
         .await
         .map_err(ErrorInternalServerError)?;
 
+    let email = app
+        .database
+        .get_email(user.0)
+        .await
+        .map_err(ErrorInternalServerError)?;
+
     let context = json!({
         "events": events.iter().map(|(event, instances)| {
             json!({
@@ -97,6 +103,7 @@ async fn list_events_calendar_html(
             })
         }).collect_vec(),
         "calendar_id": calendar_id,
+        "email": email,
     });
 
     let result = app
@@ -126,6 +133,12 @@ async fn list_events_html(
         .await
         .map_err(ErrorInternalServerError)?;
 
+    let email = app
+        .database
+        .get_email(user.0)
+        .await
+        .map_err(ErrorInternalServerError)?;
+
     let context = json!({
         "events": events.iter().map(|(event, instances)| {
             json!({
@@ -137,6 +150,7 @@ async fn list_events_html(
                 "next_dates": instances.iter().map(|i| i.date.to_rfc3339()).collect_vec(),
             })
         }).collect_vec(),
+        "email": email,
     });
 
     let result = app
@@ -166,6 +180,12 @@ async fn list_events_wit_reminders_html(
         .await
         .map_err(ErrorInternalServerError)?;
 
+    let email = app
+        .database
+        .get_email(user.0)
+        .await
+        .map_err(ErrorInternalServerError)?;
+
     let context = json!({
         "events": events.iter().map(|(event, instances)| {
             json!({
@@ -177,6 +197,7 @@ async fn list_events_wit_reminders_html(
                 "next_dates": instances.iter().map(|i| i.date.to_rfc3339()).collect_vec(),
             })
         }).collect_vec(),
+        "email": email,
     });
 
     let result = app
@@ -206,8 +227,15 @@ async fn list_calendars_html(
         .await
         .map_err(ErrorInternalServerError)?;
 
+    let email = app
+        .database
+        .get_email(user.0)
+        .await
+        .map_err(ErrorInternalServerError)?;
+
     let context = json!({
         "calendars": calendars,
+        "email": email,
     });
 
     let result = app
@@ -261,6 +289,12 @@ async fn new_reminder_html(
         return Err(actix_web::error::ErrorNotFound("Couldn't find event"));
     };
 
+    let email = app
+        .database
+        .get_email(user.0)
+        .await
+        .map_err(ErrorInternalServerError)?;
+
     let context = json!({
         "event": {
             "event_id": &event.event_id,
@@ -272,6 +306,7 @@ async fn new_reminder_html(
         "calendar_id": calendar_id,
         "default_template": crate::DEFAULT_TEMPLATE,
         "form_state": state,
+        "email": email,
     });
 
     let result = app
@@ -331,6 +366,12 @@ async fn get_reminder_html(
         return Err(actix_web::error::ErrorNotFound("Couldn't find reminder"));
     };
 
+    let email = app
+        .database
+        .get_email(user.0)
+        .await
+        .map_err(ErrorInternalServerError)?;
+
     let context = json!({
         "event": {
             "event_id": &event.event_id,
@@ -343,6 +384,7 @@ async fn get_reminder_html(
         "reminder": reminder,
         "default_template": crate::DEFAULT_TEMPLATE,
         "form_state": state,
+        "email": email,
     });
 
     let result = app
@@ -396,6 +438,12 @@ async fn get_event_html(
         .await
         .map_err(ErrorInternalServerError)?;
 
+    let email = app
+        .database
+        .get_email(user.0)
+        .await
+        .map_err(ErrorInternalServerError)?;
+
     let context = json!({
         "event": {
             "event_id": &event.event_id,
@@ -408,6 +456,7 @@ async fn get_event_html(
         "reminders": reminders,
         "default_template": crate::DEFAULT_TEMPLATE,
         "form_state": state,
+        "email": email,
     });
 
     let result = app
@@ -549,8 +598,15 @@ async fn get_calendar_html(
         .await
         .map_err(ErrorInternalServerError)?;
 
+    let email = app
+        .database
+        .get_email(user.0)
+        .await
+        .map_err(ErrorInternalServerError)?;
+
     let context = json!({
         "calendar": calendar,
+        "email": email,
     });
 
     let result = app
@@ -572,9 +628,15 @@ async fn get_calendar_html(
 #[get("/calendar/new")]
 async fn new_calendar_html(
     app: Data<App>,
-    _user: AuthedUser,
+    user: AuthedUser,
 ) -> Result<impl Responder, actix_web::Error> {
-    let context = json!({});
+    let email = app
+        .database
+        .get_email(user.0)
+        .await
+        .map_err(ErrorInternalServerError)?;
+
+    let context = json!({ "email": email });
 
     let result = app
         .templates
@@ -799,7 +861,7 @@ async fn login_post_html(
 #[get("/change_password")]
 async fn change_password_html(
     app: Data<App>,
-    _user: AuthedUser,
+    user: AuthedUser,
     query: Query<EventFormState>,
 ) -> Result<impl Responder, actix_web::Error> {
     let state = match query.into_inner().state.as_deref() {
@@ -809,8 +871,15 @@ async fn change_password_html(
         _ => None,
     };
 
+    let email = app
+        .database
+        .get_email(user.0)
+        .await
+        .map_err(ErrorInternalServerError)?;
+
     let context = json!({
         "form_state": state,
+        "email": email,
     });
 
     let result = app
@@ -888,9 +957,16 @@ async fn change_matrix_id_html(
         .await
         .map_err(ErrorInternalServerError)?;
 
+    let email = app
+        .database
+        .get_email(user.0)
+        .await
+        .map_err(ErrorInternalServerError)?;
+
     let context = json!({
         "form_state": state,
         "old_matrix_id": old_matrix_id,
+        "email": email,
     });
 
     let result = app
