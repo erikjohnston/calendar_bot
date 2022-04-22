@@ -41,15 +41,24 @@ body {
     font-size: 30px;
     color: white;
     background: #5e075e;
+
+    display: flex;
+    flex-direction: column;
 }
 
 #sidebar ul {
     padding: 30px 20px;
     list-style: none;
+    flex-grow: 1;
 }
 
 #sidebar li {
     padding: 10px 20px;
+}
+
+#sidebar footer {
+    font-size: 1rem;
+    padding: 1rem;
 }
 
 #content {
