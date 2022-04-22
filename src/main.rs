@@ -83,7 +83,7 @@ async fn create_user(config: Config, args: &ArgMatches<'_>) -> Result<(), Error>
     let database = create_database(&config).await?;
     let username = args.value_of("username").unwrap();
     let password = args.value_of("password").unwrap();
-    let user_id = database.upsert_account(&username).await?;
+    let user_id = database.upsert_account(username).await?;
     database.change_password(user_id, password).await?;
     Ok(())
 }
