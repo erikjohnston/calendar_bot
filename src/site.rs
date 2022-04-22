@@ -2,7 +2,7 @@
 
 use actix_web::{
     cookie::{Cookie, SameSite},
-    error::{ErrorForbidden, ErrorInternalServerError, ErrorNotFound},
+    error::{ErrorForbidden, ErrorInternalServerError, ErrorNotFound, ErrorBadRequest},
     get,
     middleware::Logger,
     post,
@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tracing_actix_web::TracingLogger;
 
-use crate::app::App;
+use crate::app::{is_likely_a_valid_user_id, App};
 use crate::auth::AuthedUser;
 use crate::database::Reminder;
 
@@ -921,6 +921,10 @@ async fn change_matrix_id_post_html(
     data: Form<ChangeMatrixIdForm>,
     user: AuthedUser,
 ) -> Result<impl Responder, actix_web::Error> {
+    if !is_likely_a_valid_user_id(&data.new_matrix_id) {
+        return Err(ErrorBadRequest("That does not look like a Matrix ID."))
+    }
+
     let email = app
         .database
         .get_email(user.0)

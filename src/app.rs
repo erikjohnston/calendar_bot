@@ -847,7 +847,7 @@ impl App {
 /// Checks if the string is likely a valid user ID.
 ///
 /// Doesn't bother to fully check the domain part is valid
-fn is_likely_a_valid_user_id(user_id: &str) -> bool {
+pub(crate) fn is_likely_a_valid_user_id(user_id: &str) -> bool {
     if user_id.len() < 2 {
         return false;
     }
