@@ -1,0 +1,21 @@
+[database]
+connection_string = "postgresql://calbot:password@localhost:5432/calbotdb"
+
+[matrix]
+homeserver_url = ""
+access_token = ""
+
+# [app]
+# bind_addr = "127.0.0.1:8080"
+# resource_directory = "res"
+
+# [sso]
+# display_name = ""
+# issuer_url = ""
+# client_id = ""
+# client_secret = ""
+# base_url ""
+# scopes = []
+
+# [hibob]
+# token = ""
