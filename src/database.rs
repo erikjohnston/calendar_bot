@@ -894,6 +894,48 @@ impl Database {
         Ok(mapping)
     }
 
+    /// Return the username of this user, or an error if the user does
+    /// not exist.
+    pub async fn get_email(&self, user_id: i64) -> Result<String, Error> {
+        let db_conn = self.db_pool.get().await?;
+
+        let row = db_conn
+            .query_opt("SELECT email FROM users WHERE user_id = $1", &[&user_id])
+            .await?;
+
+        if let Some(row) = row {
+            let email: String = row.try_get(0)?;
+            Ok(email)
+        } else {
+            Err(anyhow::anyhow!("No user with that user_id"))
+        }
+    }
+
+    /// Return the Matrix ID of this user, or None if no Matrix ID is mapped
+    /// for this user, or an error if the user does not exist.
+    pub async fn get_matrix_id(&self, user_id: i64) -> Result<Option<String>, Error> {
+        let db_conn = self.db_pool.get().await?;
+
+        let row = db_conn
+            .query_opt(
+                r#"
+                    SELECT email_to_matrix_id.matrix_id
+                    FROM email_to_matrix_id
+                    INNER JOIN users USING (email)
+                    WHERE users.user_id = $1
+                "#,
+                &[&user_id],
+            )
+            .await?;
+
+        if let Some(row) = row {
+            let matrix_id: String = row.try_get(0)?;
+            Ok(Some(matrix_id))
+        } else {
+            Ok(None)
+        }
+    }
+
     /// Check the password matches the hash in the DB for the user with given
     /// Matrix ID.
     pub async fn check_password(&self, email: &str, password: &str) -> Result<Option<i64>, Error> {
@@ -1051,7 +1093,7 @@ impl Database {
         Ok(rows.into_iter().map(|row| row.get(0)).collect())
     }
 
-    /// Persist a email to matrix ID mapping.
+    /// Persist an email to matrix ID mapping.
     ///
     /// This does *not* overwrite existing mappings. Returns true if the new
     /// mapping was added.
@@ -1070,6 +1112,27 @@ impl Database {
             .await?;
 
         Ok(ret.is_some())
+    }
+
+    /// Persist an email to matrix ID mapping.
+    ///
+    /// This *does* overwrite existing mappings.
+    pub async fn replace_matrix_id(&self, email: &str, matrix_id: &str) -> Result<(), Error> {
+        let db_conn = self.db_pool.get().await?;
+
+        db_conn
+            .query_opt(
+                r#"
+                INSERT INTO email_to_matrix_id (email, matrix_id) VALUES ($1, $2)
+                ON CONFLICT (email)
+                DO UPDATE SET
+                    matrix_id = EXCLUDED.matrix_id
+                "#,
+                &[&email, &matrix_id],
+            )
+            .await?;
+
+        Ok(())
     }
 
     /// Record a new in flight SSO session.

@@ -1,0 +1,41 @@
+<html>
+<title>Calendar Reminders</title>
+<meta charset="utf-8">
+<style>
+    {% include "base.css" %}
+
+    form {
+        max-width: 500px;
+    }
+
+    input[type="text"] {
+        width: 100%;
+    }
+</style>
+
+<script>
+{% include "base.js" %}
+
+</script>
+
+<body>
+    {% include "sidebar.html" %}
+
+    <div id="content">
+
+        <h1>Change Matrix ID</h1>
+
+        {% if form_state == "saved" %}
+        <p><b>Saved!</b></p>
+        {% endif %}
+
+        <form method="post">
+            <p>Change Matrix ID:
+                <input type="text" name="new_matrix_id" placeholder="@name:example.com" value="{{ old_matrix_id }}"/></p>
+            <p><input type="submit" value="Change Matrix ID" formaction="/change_matrix_id" /></p>
+        </form>
+
+    </div>
+</body>
+
+</html>
