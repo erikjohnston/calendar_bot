@@ -894,7 +894,7 @@ impl Database {
         Ok(mapping)
     }
 
-    /// Return the username of this user, or an error if the user does
+    /// Return the email of this user, or an error if the user does
     /// not exist.
     pub async fn get_email(&self, user_id: i64) -> Result<String, Error> {
         let db_conn = self.db_pool.get().await?;
