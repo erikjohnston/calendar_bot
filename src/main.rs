@@ -9,7 +9,10 @@ use std::{fs, path::Path};
 use anyhow::{Context, Error};
 use bb8_postgres::tokio_postgres::NoTls;
 
-use clap::{crate_authors, crate_description, crate_name, crate_version, value_t_or_exit, Arg};
+use clap::{
+    crate_authors, crate_description, crate_name, crate_version, value_t_or_exit, Arg, ArgMatches,
+    SubCommand,
+};
 
 use config::Config;
 
@@ -48,6 +51,11 @@ async fn main() -> Result<(), Error> {
                 .takes_value(true)
                 .required(true),
         )
+        .subcommand(
+            SubCommand::with_name("create-user")
+                .arg(Arg::with_name("username").required(true))
+                .arg(Arg::with_name("password").required(true)),
+        )
         .get_matches();
 
     let config_file = value_t_or_exit!(matches, "config", String);
@@ -56,12 +64,32 @@ async fn main() -> Result<(), Error> {
         toml::from_slice(&fs::read(&config_file).with_context(|| "Reading config file")?)
             .with_context(|| "Parsing config file")?;
 
+    match matches.subcommand() {
+        ("create-user", Some(submatches)) => create_user(config, submatches).await,
+        _ => start(config).await,
+    }
+}
+
+async fn create_database(config: &Config) -> Result<Database, Error> {
     let manager = bb8_postgres::PostgresConnectionManager::new_from_stringlike(
         &config.database.connection_string,
         NoTls,
     )?;
     let db_pool = bb8::Pool::builder().max_size(15).build(manager).await?;
-    let database = Database::from_pool(db_pool);
+    Ok(Database::from_pool(db_pool))
+}
+
+async fn create_user(config: Config, args: &ArgMatches<'_>) -> Result<(), Error> {
+    let database = create_database(&config).await?;
+    let username = args.value_of("username").unwrap();
+    let password = args.value_of("password").unwrap();
+    let user_id = database.upsert_account(&username).await?;
+    database.change_password(user_id, password).await?;
+    Ok(())
+}
+
+async fn start(config: Config) -> Result<(), Error> {
+    let database = create_database(&config).await?;
 
     let resource_directory = Path::new(config.app.resource_directory.as_deref().unwrap_or("res"));
 
