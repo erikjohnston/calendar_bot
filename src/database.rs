@@ -27,7 +27,6 @@ pub struct Attendee {
 pub enum CalendarAuthentication {
     None,
     Basic { user_name: String, password: String },
-    Bearer { token: String },
 }
 
 impl std::fmt::Debug for CalendarAuthentication {
@@ -42,9 +41,6 @@ impl std::fmt::Debug for CalendarAuthentication {
                 .field("user_name", user_name)
                 .field("password", &"<password>")
                 .finish(),
-            Self::Bearer { token: _ } => {
-                f.debug_struct("Bearer").field("token", &"<token>").finish()
-            }
         }
     }
 }
