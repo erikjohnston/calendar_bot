@@ -1175,6 +1175,7 @@ pub async fn run_server(app: App) -> Result<(), Error> {
             .service(sso_redirect)
             .service(sso_auth)
             .service(oauth2_callback)
+            .service(google_calendars)
     })
     .bind(&bind_addr)?
     .run()
