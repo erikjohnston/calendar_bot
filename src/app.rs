@@ -1003,7 +1003,7 @@ impl App {
             .database
             .claim_oauth2_session(&state)
             .await?
-            .context("Unknown SSO session")?;
+            .context("Unknown OAuth2 session")?;
 
         let pkce_verifier = PkceCodeVerifier::new(code_verifier);
 

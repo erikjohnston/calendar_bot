@@ -1347,7 +1347,7 @@ impl Database {
         txn.execute(
             r#"
             INSERT INTO oauth2_tokens (user_id, access_token, refresh_token, expiry)
-            VALUES (DEFAULT, $1, $2, $3, $4)
+            VALUES ($1, $2, $3, $4)
             "#,
             &[&user_id, &access_token, &refresh_token, &expiry],
         )
