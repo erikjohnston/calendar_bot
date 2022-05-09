@@ -5,7 +5,6 @@ use std::ops::Deref;
 
 use anyhow::{Context, Error};
 use chrono::{DateTime, Duration, FixedOffset, Utc};
-use oauth2::TokenResponse;
 use postgres_types::{FromSql, ToSql};
 use serde::{Deserialize, Serialize};
 use tokio_postgres::NoTls;
@@ -23,29 +22,43 @@ pub struct Attendee {
     pub common_name: Option<String>,
 }
 
-/// The URL and credentials of a calendar.
 #[derive(Clone, Serialize)]
+#[serde(untagged)]
+pub enum CalendarAuthentication {
+    None,
+    Basic { user_name: String, password: String },
+    Bearer { token: String },
+}
+
+impl std::fmt::Debug for CalendarAuthentication {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::None => write!(f, "None"),
+            Self::Basic {
+                user_name,
+                password: _,
+            } => f
+                .debug_struct("Basic")
+                .field("user_name", user_name)
+                .field("password", &"<password>")
+                .finish(),
+            Self::Bearer { token: _ } => {
+                f.debug_struct("Bearer").field("token", &"<token>").finish()
+            }
+        }
+    }
+}
+
+/// The URL and credentials of a calendar.
+#[derive(Debug, Clone, Serialize)]
 pub struct Calendar {
     pub user_id: i64,
     pub calendar_id: i64,
     pub name: String,
     pub url: String,
-    pub user_name: Option<String>,
-    pub password: Option<String>,
-}
 
-impl std::fmt::Debug for Calendar {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        // We format this ourselves as we don't want to leak the password.
-        f.debug_struct("Calendar")
-            .field("user_id", &self.user_id)
-            .field("calendar_id", &self.calendar_id)
-            .field("name", &self.name)
-            .field("url", &self.url)
-            .field("user_name", &self.user_name)
-            .field("password", &self.password.as_deref().map(|_| "xxxxxxxxx"))
-            .finish()
-    }
+    #[serde(skip)]
+    pub authentication: CalendarAuthentication,
 }
 
 /// Basic info for an event.
@@ -94,6 +107,21 @@ pub struct Reminder {
     pub attendee_editable: bool,
 }
 
+/// Result of requesting an OAuth2 access token from the DB.
+pub enum OAuth2Result {
+    /// User hasn't authenticated yet
+    None,
+
+    /// User has authenticated, but we need to refresh the token
+    RefreshToken {
+        refresh_token: String,
+        token_id: i64,
+    },
+
+    /// User has a (probably) valid access token
+    AccessToken(String),
+}
+
 /// Allows talking to the database.
 #[derive(Debug, Clone)]
 pub struct Database {
@@ -130,13 +158,21 @@ impl Database {
             let user_name = row.try_get("user_name")?;
             let password = row.try_get("password")?;
 
+            let authentication = if let (Some(user_name), Some(password)) = (user_name, password) {
+                CalendarAuthentication::Basic {
+                    user_name,
+                    password,
+                }
+            } else {
+                CalendarAuthentication::None
+            };
+
             calendars.push(Calendar {
                 user_id,
                 calendar_id,
                 name,
                 url,
-                user_name,
-                password,
+                authentication,
             })
         }
 
@@ -167,13 +203,21 @@ impl Database {
             let user_name = row.try_get("user_name")?;
             let password = row.try_get("password")?;
 
+            let authentication = if let (Some(user_name), Some(password)) = (user_name, password) {
+                CalendarAuthentication::Basic {
+                    user_name,
+                    password,
+                }
+            } else {
+                CalendarAuthentication::None
+            };
+
             calendars.push(Calendar {
                 user_id,
                 calendar_id,
                 name,
                 url,
-                user_name,
-                password,
+                authentication,
             })
         }
 
@@ -204,13 +248,21 @@ impl Database {
             let user_name = row.try_get("user_name")?;
             let password = row.try_get("password")?;
 
+            let authentication = if let (Some(user_name), Some(password)) = (user_name, password) {
+                CalendarAuthentication::Basic {
+                    user_name,
+                    password,
+                }
+            } else {
+                CalendarAuthentication::None
+            };
+
             Ok(Some(Calendar {
                 user_id,
                 calendar_id,
                 name,
                 url,
-                user_name,
-                password,
+                authentication,
             }))
         } else {
             Ok(None)
@@ -1284,15 +1336,50 @@ impl Database {
         refresh_token: &str,
         expiry: DateTime<Utc>,
     ) -> Result<(), Error> {
+        let mut db_conn = self.db_pool.get().await?;
+
+        let txn = db_conn.transaction().await?;
+
+        // We only want one oauth2 token per user provisioned at a time, so we
+        // delete any existing ones.
+        txn.execute(
+            r#"DELETE FROM oauth2_tokens WHERE user_id = $1"#,
+            &[&user_id],
+        )
+        .await?;
+
+        txn.execute(
+            r#"
+            INSERT INTO oauth2_tokens (user_id, access_token, refresh_token, expiry)
+            VALUES (DEFAULT, $1, $2, $3, $4)
+            "#,
+            &[&user_id, &access_token, &refresh_token, &expiry],
+        )
+        .await?;
+
+        txn.commit().await?;
+
+        Ok(())
+    }
+
+    pub async fn update_google_oauth_token(
+        &self,
+        user_id: i64,
+        token_id: i64,
+        access_token: &str,
+        refresh_token: &str,
+        expiry: DateTime<Utc>,
+    ) -> Result<(), Error> {
         let db_conn = self.db_pool.get().await?;
 
         db_conn
             .execute(
                 r#"
-            INSERT INTO oauth2_tokens (user_id, access_token, refresh_token, expiry)
-            VALUES ($1, $2, $3, $4)
+            UPDATE oauth2_tokens (user_id, access_token, refresh_token, expiry)
+            SET access_token = $3, refresh_token = $4, expiry = $5
+            WHERE token_id = $1 AND user_id = $2
             "#,
-                &[&user_id, &access_token, &refresh_token, &expiry],
+                &[&token_id, &user_id, &access_token, &refresh_token, &expiry],
             )
             .await?;
 
@@ -1305,15 +1392,16 @@ impl Database {
         user_id: i64,
         crsf_token: &str,
         code_verifier: &str,
+        path: &str,
     ) -> Result<(), Error> {
         let db_conn = self.db_pool.get().await?;
 
         db_conn
             .execute(
                 r#"
-                INSERT INTO oauth2_sessions (user_id, crsf_token, code_verifier) VALUES ($1, $2, $3)
+                INSERT INTO oauth2_sessions (user_id, crsf_token, code_verifier, path) VALUES ($1, $2, $3, $4)
                 "#,
-                &[&user_id, &crsf_token, &code_verifier],
+                &[&user_id, &crsf_token, &code_verifier, &path],
             )
             .await?;
 
@@ -1325,7 +1413,7 @@ impl Database {
     pub async fn claim_oauth2_session(
         &self,
         crsf_token: &str,
-    ) -> Result<Option<(i64, String)>, Error> {
+    ) -> Result<Option<(i64, String, String)>, Error> {
         let db_conn = self.db_pool.get().await?;
 
         let ret = db_conn
@@ -1333,7 +1421,7 @@ impl Database {
                 r#"
                 DELETE FROM oauth2_sessions
                 WHERE crsf_token = $1
-                RETURNING user_id, code_verifier
+                RETURNING user_id, code_verifier, path
                 "#,
                 &[&crsf_token],
             )
@@ -1342,10 +1430,44 @@ impl Database {
         if let Some(row) = ret {
             let user_id: i64 = row.get(0);
             let code_verifier: String = row.get(1);
+            let path: String = row.get(2);
 
-            return Ok(Some((user_id, code_verifier)));
+            return Ok(Some((user_id, code_verifier, path)));
         }
 
         Ok(None)
+    }
+
+    pub async fn get_oauth2_access_token(&self, user_id: i64) -> Result<OAuth2Result, Error> {
+        let db_conn = self.db_pool.get().await?;
+
+        let ret = db_conn
+            .query_opt(
+                r#"
+                SELECT token_id, access_token refresh_token, expiry
+                FROM oauth2_tokens
+                WHERE user_id = $1
+            "#,
+                &[&user_id],
+            )
+            .await?;
+
+        if let Some(row) = ret {
+            let token_id: i64 = row.try_get("token_id")?;
+            let access_token: String = row.try_get("access_token")?;
+            let refresh_token: String = row.try_get("refresh_token")?;
+            let expiry: DateTime<Utc> = row.try_get("expiry")?;
+
+            if expiry < Utc::now() {
+                Ok(OAuth2Result::AccessToken(access_token))
+            } else {
+                Ok(OAuth2Result::RefreshToken {
+                    refresh_token,
+                    token_id,
+                })
+            }
+        } else {
+            Ok(OAuth2Result::None)
+        }
     }
 }

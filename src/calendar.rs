@@ -13,7 +13,7 @@ use url::Url;
 
 use std::{convert::TryInto, ops::Deref, str::FromStr};
 
-use crate::database::{Attendee, Event, EventInstance};
+use crate::database::{Attendee, CalendarAuthentication, Event, EventInstance};
 
 /// Parse a ICS encoded calendar.
 fn decode_calendar(cal_body: &str) -> Result<Vec<VCalendar>, Error> {
@@ -30,19 +30,23 @@ fn decode_calendar(cal_body: &str) -> Result<Vec<VCalendar>, Error> {
 ///
 /// Note that CalDAV returns a calendar per event, rather than one calendar with
 /// many events.
-#[instrument(skip(client, password), fields(status))]
+#[instrument(skip(client), fields(status))]
 pub async fn fetch_calendars(
     client: &reqwest::Client,
     url: &str,
-    user_name: Option<&str>,
-    password: Option<&str>,
+    authentication: &CalendarAuthentication,
 ) -> Result<Vec<VCalendar>, Error> {
     let mut req = client
         .request(Method::from_str("REPORT").expect("method"), url)
         .header("Content-Type", "application/xml");
 
-    if let Some(user) = user_name {
-        req = req.basic_auth(user, password);
+    match authentication {
+        CalendarAuthentication::None => todo!(),
+        CalendarAuthentication::Basic {
+            user_name,
+            password,
+        } => req = req.basic_auth(user_name, Some(password)),
+        CalendarAuthentication::Bearer { token } => req = req.bearer_auth(token),
     }
 
     let resp = req

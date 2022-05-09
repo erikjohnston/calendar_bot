@@ -10,7 +10,7 @@ use std::{
 use crate::{
     calendar::{fetch_calendars, parse_calendars_to_events},
     config::HiBobConfig,
-    database::ReminderInstance,
+    database::{OAuth2Result, ReminderInstance},
 };
 use crate::{config::Config, database::Database};
 use crate::{database::Calendar, DEFAULT_TEMPLATE};
@@ -22,7 +22,7 @@ use futures::future;
 use handlebars::Handlebars;
 use ics_parser::property::EndCondition;
 use itertools::Itertools;
-use oauth2::{basic::BasicClient, AuthUrl, TokenUrl};
+use oauth2::{basic::BasicClient, AccessToken, AuthUrl, RefreshToken, TokenUrl};
 use openidconnect::{
     core::{CoreAuthenticationFlow, CoreClient, CoreProviderMetadata},
     reqwest::async_http_client,
@@ -30,7 +30,7 @@ use openidconnect::{
     OAuth2TokenResponse, PkceCodeChallenge, PkceCodeVerifier, RedirectUrl, Scope, TokenResponse,
 };
 use rand::{distributions::Alphanumeric, Rng};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tera::Tera;
 use tokio::{
@@ -118,6 +118,27 @@ struct HiBobPeoplePersonalResponseField {
 #[serde(rename_all = "camelCase")]
 struct HiBobPeoplePersonalCommunicationResponseField {
     skype_username: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct GoogleCalendarListItem {
+    pub id: String,
+    pub summary: String,
+    pub description: String,
+    pub primary: bool,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct GoogleCalendarListResponse {
+    items: Vec<GoogleCalendarListItem>,
+}
+
+/// A result for functions that interact with OAuth2 resources, which can either
+/// result in a success or need to redirect the user somewhere.
+#[derive(Clone, Debug)]
+pub enum TryAuthenticatedAPI<T> {
+    Success(T),
+    Redirect(Url),
 }
 
 impl Reminders {
@@ -212,13 +233,13 @@ impl App {
             let client = oauth2::basic::BasicClient::new(
                 ClientId::new(google_config.client_id.clone()),
                 google_config.client_secret.clone().map(ClientSecret::new),
-                AuthUrl::new("https://accounts.google.como/oauth2/auth".to_string())?,
+                AuthUrl::new("https://accounts.google.com/o/oauth2/v2/auth".to_string())?,
                 Some(TokenUrl::new(
-                    "https://accounts.google.como/oauth2/token".to_string(),
+                    "https://oauth2.googleapis.com/token".to_string(),
                 )?),
             )
             .set_redirect_uri(RedirectUrl::new(format!(
-                "{}/oauth2/redirect",
+                "{}/oauth2/callback",
                 google_config.redirect_base_url
             ))?);
 
@@ -275,8 +296,7 @@ impl App {
         let calendars = fetch_calendars(
             &self.http_client,
             &db_calendar.url,
-            db_calendar.user_name.as_deref(),
-            db_calendar.password.as_deref(),
+            &db_calendar.authentication,
         )
         .await?;
 
@@ -865,8 +885,86 @@ impl App {
         Ok(token)
     }
 
+    pub async fn get_google_calendars(
+        &self,
+        path: &str,
+        user_id: i64,
+    ) -> Result<TryAuthenticatedAPI<Vec<GoogleCalendarListItem>>, Error> {
+        let access_token = match self.database.get_oauth2_access_token(user_id).await? {
+            OAuth2Result::None => {
+                let redirect_url = self.start_google_oauth_session(user_id, path).await?;
+
+                return Ok(TryAuthenticatedAPI::Redirect(redirect_url));
+            }
+            OAuth2Result::RefreshToken {
+                refresh_token,
+                token_id,
+            } => {
+                let client = self
+                    .google_client
+                    .as_ref()
+                    .context("Google not configured")?;
+
+                let token_result = client
+                    .exchange_refresh_token(&RefreshToken::new(refresh_token))
+                    .request_async(async_http_client)
+                    .await?;
+
+                let expires_in = token_result
+                    .expires_in()
+                    .unwrap_or_else(|| std::time::Duration::from_secs(60 * 60));
+
+                let expiry = Utc::now() + Duration::from_std(expires_in)? - Duration::minutes(10);
+
+                self.database
+                    .update_google_oauth_token(
+                        user_id,
+                        token_id,
+                        token_result.access_token().secret(),
+                        token_result
+                            .refresh_token()
+                            .context("missing refresh token")?
+                            .secret(),
+                        expiry,
+                    )
+                    .await?;
+
+                token_result.access_token().clone()
+            }
+            OAuth2Result::AccessToken(access_token) => AccessToken::new(access_token),
+        };
+
+        let response = self
+            .http_client
+            .get("https://www.googleapis.com/calendar/v3/users/me/calendarList")
+            .bearer_auth(access_token.secret())
+            .send()
+            .await?;
+
+        if response.status().as_u16() == 401 {
+            let redirect_url = self.start_google_oauth_session(user_id, path).await?;
+
+            return Ok(TryAuthenticatedAPI::Redirect(redirect_url));
+        }
+
+        if !response.status().is_success() {
+            bail!("Failed to talk to server.")
+        }
+
+        let body: GoogleCalendarListResponse = response.json().await?;
+
+        let mut calendars = body.items;
+
+        // Sort the calendars so the primary one is first.
+        calendars.sort_by_key(|c| c.primary);
+
+        Ok(TryAuthenticatedAPI::Success(calendars))
+    }
+
     /// Start an OAuth2 session, returning the URL to redirect the client to.
-    pub async fn start_google_oauth_session(&self, user_id: i64) -> Result<Url, Error> {
+    ///
+    /// Takes the user ID of the authenticated user and the path they were trying to access.
+    pub async fn start_google_oauth_session(&self, user_id: i64, path: &str) -> Result<Url, Error> {
         let client = self
             .google_client
             .as_ref()
@@ -887,18 +985,19 @@ impl App {
             .url();
 
         self.database
-            .add_oauth2_session(user_id, csrf_token.secret(), pkce_verifier.secret())
+            .add_oauth2_session(user_id, csrf_token.secret(), pkce_verifier.secret(), path)
             .await?;
 
         Ok(auth_url)
     }
 
+    /// Finish the OAuth2 flow and return the path to redirect the user to.
     pub async fn finish_google_oauth_session(
         &self,
         state: &str,
         code: String,
     ) -> Result<String, Error> {
-        let (user_id, code_verifier) = self
+        let (user_id, code_verifier, path) = self
             .database
             .claim_oauth2_session(&state)
             .await?
@@ -937,7 +1036,7 @@ impl App {
             )
             .await?;
 
-        todo!()
+        Ok(path)
     }
 }
 

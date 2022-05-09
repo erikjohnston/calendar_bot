@@ -17,9 +17,12 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tracing_actix_web::TracingLogger;
 
-use crate::app::{is_likely_a_valid_user_id, App};
-use crate::auth::AuthedUser;
 use crate::database::Reminder;
+use crate::{app::TryAuthenticatedAPI, auth::AuthedUser};
+use crate::{
+    app::{is_likely_a_valid_user_id, App},
+    database::CalendarAuthentication,
+};
 
 /// Root handler.
 #[get("/")]
@@ -698,7 +701,11 @@ async fn edit_calendar_html(
     // Awful hack to keep password unchanged if left blank, but still using
     // basic auth.
     if password.is_none() && user_name.is_some() {
-        password = existing_calendar.password.clone();
+        let existing_password = match existing_calendar.authentication {
+            CalendarAuthentication::Basic { ref password, .. } => password.clone(),
+            _ => return Err(ErrorInternalServerError("Calendar doesn't have a password")),
+        };
+        password = Some(existing_password)
     }
 
     app.database
@@ -984,6 +991,44 @@ async fn change_matrix_id_html(
     Ok(response)
 }
 
+/// Change Matrix ID page
+#[get("/google_calendars")]
+async fn google_calendars(
+    app: Data<App>,
+    user: AuthedUser,
+) -> Result<impl Responder, actix_web::Error> {
+    let calendars = match app
+        .get_google_calendars("/google_calendars", user.0)
+        .await
+        .map_err(ErrorInternalServerError)?
+    {
+        TryAuthenticatedAPI::Success(calendars) => calendars,
+        TryAuthenticatedAPI::Redirect(url) => {
+            return Ok(HttpResponse::SeeOther()
+                .insert_header(("Location", url.to_string()))
+                .finish())
+        }
+    };
+
+    let context = json!({
+        "calendars": calendars,
+    });
+
+    let result = app
+        .templates
+        .render(
+            "list_google_calendars.html.j2",
+            &tera::Context::from_serialize(&context).map_err(ErrorInternalServerError)?,
+        )
+        .map_err(ErrorInternalServerError)?;
+
+    let mut builder = HttpResponse::Ok();
+    builder.insert_header(("Content-Type", "text/html; charset=utf-8"));
+    let response = builder.body(result);
+
+    Ok(response)
+}
+
 /// Form body for changing password
 #[derive(Debug, Deserialize, Clone)]
 struct ChangeMatrixIdForm {
@@ -1073,6 +1118,24 @@ async fn sso_auth(
         .finish())
 }
 
+/// Finish OAuth2 flow.
+#[get("/oauth2/callback")]
+async fn oauth2_callback(
+    app: Data<App>,
+    query: Query<SsoStateParam>,
+) -> Result<impl Responder, actix_web::Error> {
+    let path = app
+        .finish_google_oauth_session(&query.state, query.code.clone())
+        .await
+        .map_err(ErrorInternalServerError)?;
+
+    let response = HttpResponse::TemporaryRedirect()
+        .insert_header(("Location", path))
+        .finish();
+
+    Ok(response)
+}
+
 /// Run the HTTP server.
 pub async fn run_server(app: App) -> Result<(), Error> {
     let bind_addr = app
@@ -1111,6 +1174,7 @@ pub async fn run_server(app: App) -> Result<(), Error> {
             .service(change_matrix_id_post_html)
             .service(sso_redirect)
             .service(sso_auth)
+            .service(oauth2_callback)
     })
     .bind(&bind_addr)?
     .run()
