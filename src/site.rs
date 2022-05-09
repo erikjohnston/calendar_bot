@@ -1010,8 +1010,15 @@ async fn google_calendars(
         }
     };
 
+    let email = app
+        .database
+        .get_email(user.0)
+        .await
+        .map_err(ErrorInternalServerError)?;
+
     let context = json!({
         "calendars": calendars,
+        "email": email,
     });
 
     let result = app
