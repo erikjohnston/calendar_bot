@@ -2,10 +2,16 @@ CREATE TABLE calendars (
     calendar_id BIGSERIAL PRIMARY KEY,
     user_id bigint NOT NULL,
     name TEXT NOT NULL,
-    url text NOT NULL,
-    user_name text,
-    password text
+    url text NOT NULL
 );
+
+CREATE TABLE calendar_passwords (
+    calendar_id BIGINT NOT NULL REFERENCES calendars(calendar_id),
+    user_name TEXT NOT NULL,
+    password TEXT NOT NULL
+);
+
+CREATE UNIQUE INDEX ON calendar_passwords(calendar_id);
 
 
 CREATE TYPE "Attendee" AS (

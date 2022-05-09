@@ -111,7 +111,11 @@ impl Database {
 
         let rows = db_conn
             .query(
-                "SELECT user_id, calendar_id, name, url, user_name, password FROM calendars",
+                r#"
+                SELECT user_id, calendar_id, name, url, cp.user_name, cp.password
+                FROM calendars
+                LEFT JOIN calendar_passwords AS cp USING (calendar_id)
+                "#,
                 &[],
             )
             .await?;
@@ -145,7 +149,9 @@ impl Database {
         let rows = db_conn
             .query(
                 r#"
-                    SELECT calendar_id, name, url, user_name, password FROM calendars
+                SELECT calendar_id, name, url, cp.user_name, cp.password
+                FROM calendars
+                LEFT JOIN calendar_passwords AS cp USING (calendar_id)
                     WHERE user_id = $1
                 "#,
                 &[&user_id],
@@ -180,7 +186,9 @@ impl Database {
         let row = db_conn
             .query_opt(
                 r#"
-                    SELECT user_id, calendar_id, name, url, user_name, password FROM calendars
+                    SELECT user_id, calendar_id, name, url, cp.user_name, cp.password
+                    FROM calendars
+                    LEFT JOIN calendar_passwords AS cp USING (calendar_id)
                     WHERE calendar_id = $1
                 "#,
                 &[&calendar_id],
@@ -217,35 +225,71 @@ impl Database {
         user_name: Option<String>,
         password: Option<String>,
     ) -> Result<(), Error> {
-        let db_conn = self.db_pool.get().await?;
+        let mut db_conn = self.db_pool.get().await?;
 
-        db_conn
-            .execute(
-                r#"
+        let txn = db_conn.transaction().await?;
+
+        txn.execute(
+            r#"
                     UPDATE calendars
-                    SET name = $2, url = $3, user_name = $4, password = $5
+                    SET name = $2, url = $3
                     WHERE calendar_id = $1
                 "#,
-                &[&calendar_id, &name, &url, &user_name, &password],
+            &[&calendar_id, &name, &url],
+        )
+        .await?;
+
+        if let (Some(user_name), Some(password)) = (user_name, password) {
+            txn.execute(
+                r#"
+                        UPDATE calendar_passwords
+                        SET user_name = $2, password = $3
+                        WHERE calendar_id = $1
+                    "#,
+                &[&calendar_id, &user_name, &password],
             )
             .await?;
+        } else {
+            txn.execute(
+                r#"
+                        DELETE FROM calendar_passwords
+                        WHERE calendar_id = $1
+                    "#,
+                &[&calendar_id],
+            )
+            .await?;
+        }
+
+        txn.commit().await?;
 
         Ok(())
     }
 
     /// Delete a calendar.
     pub async fn delete_calendar(&self, calendar_id: i64) -> Result<(), Error> {
-        let db_conn = self.db_pool.get().await?;
+        let mut db_conn = self.db_pool.get().await?;
 
-        db_conn
-            .execute(
-                r#"
+        let txn = db_conn.transaction().await?;
+
+        txn.execute(
+            r#"
+                    DELETE FROM calendar_passwords
+                    WHERE calendar_id = $1
+                "#,
+            &[&calendar_id],
+        )
+        .await?;
+
+        txn.execute(
+            r#"
                     DELETE FROM calendars
                     WHERE calendar_id = $1
                 "#,
-                &[&calendar_id],
-            )
-            .await?;
+            &[&calendar_id],
+        )
+        .await?;
+
+        txn.commit().await?;
 
         Ok(())
     }
@@ -259,20 +303,37 @@ impl Database {
         user_name: Option<String>,
         password: Option<String>,
     ) -> Result<i64, Error> {
-        let db_conn = self.db_pool.get().await?;
+        let mut db_conn = self.db_pool.get().await?;
 
-        let row = db_conn
+        let txn = db_conn.transaction().await?;
+
+        let row = txn
             .query_one(
                 r#"
-                    INSERT INTO calendars (user_id, name, url, user_name, password)
-                    VALUES ($1, $2, $3, $4, $5)
+                    INSERT INTO calendars (user_id, name, url)
+                    VALUES ($1, $2, $3)
                     RETURNING calendar_id
                 "#,
-                &[&user_id, &name, &url, &user_name, &password],
+                &[&user_id, &name, &url],
             )
             .await?;
 
-        Ok(row.try_get(0)?)
+        let calendar_id = row.try_get(0)?;
+
+        if let (Some(user_name), Some(password)) = (user_name, password) {
+            txn.execute(
+                r#"
+                    INSERT INTO calendars (calendar_id, user_name, password)
+                    VALUES ($1, $2, $3)
+                "#,
+                &[&calendar_id, &user_name, &password],
+            )
+            .await?;
+        }
+
+        txn.commit().await?;
+
+        Ok(calendar_id)
     }
 
     /// Insert events and the next instances of the event.
