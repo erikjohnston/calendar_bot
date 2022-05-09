@@ -923,10 +923,6 @@ impl App {
                         user_id,
                         token_id,
                         token_result.access_token().secret(),
-                        token_result
-                            .refresh_token()
-                            .context("missing refresh token")?
-                            .secret(),
                         expiry,
                     )
                     .await?;

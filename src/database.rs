@@ -1363,7 +1363,6 @@ impl Database {
         user_id: i64,
         token_id: i64,
         access_token: &str,
-        refresh_token: &str,
         expiry: DateTime<Utc>,
     ) -> Result<(), Error> {
         let db_conn = self.db_pool.get().await?;
@@ -1371,11 +1370,11 @@ impl Database {
         db_conn
             .execute(
                 r#"
-            UPDATE oauth2_tokens (user_id, access_token, refresh_token, expiry)
-            SET access_token = $3, refresh_token = $4, expiry = $5
+            UPDATE oauth2_tokens (user_id, access_token, expiry)
+            SET access_token = $3, expiry = $4
             WHERE token_id = $1 AND user_id = $2
             "#,
-                &[&token_id, &user_id, &access_token, &refresh_token, &expiry],
+                &[&token_id, &user_id, &access_token, &expiry],
             )
             .await?;
 
