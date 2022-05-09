@@ -124,7 +124,9 @@ struct HiBobPeoplePersonalCommunicationResponseField {
 pub struct GoogleCalendarListItem {
     pub id: String,
     pub summary: String,
+    #[serde(default)]
     pub description: String,
+    #[serde(default)]
     pub primary: bool,
 }
 
