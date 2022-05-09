@@ -102,7 +102,8 @@ CREATE UNIQUE INDEX ON sso_sessions(crsf_token);
 CREATE TABLE oauth2_sessions (
     user_id BIGINT NOT NULL REFERENCES users(user_id),
     crsf_token TEXT NOT NULL,
-    code_verifier TEXT NOT NULL
+    code_verifier TEXT NOT NULL,
+    path TEXT NOT NULL
 );
 
 CREATE UNIQUE INDEX ON oauth2_sessions(crsf_token);
