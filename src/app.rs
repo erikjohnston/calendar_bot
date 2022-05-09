@@ -233,7 +233,9 @@ impl App {
             let client = oauth2::basic::BasicClient::new(
                 ClientId::new(google_config.client_id.clone()),
                 google_config.client_secret.clone().map(ClientSecret::new),
-                AuthUrl::new("https://accounts.google.com/o/oauth2/v2/auth".to_string())?,
+                AuthUrl::new(
+                    "https://accounts.google.com/o/oauth2/v2/auth?access_type=offline".to_string(),
+                )?,
                 Some(TokenUrl::new(
                     "https://oauth2.googleapis.com/token".to_string(),
                 )?),
