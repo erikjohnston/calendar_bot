@@ -1440,7 +1440,7 @@ impl Database {
         let ret = db_conn
             .query_opt(
                 r#"
-                SELECT token_id, access_token refresh_token, expiry
+                SELECT token_id, access_token, refresh_token, expiry
                 FROM oauth2_tokens
                 WHERE user_id = $1
             "#,
