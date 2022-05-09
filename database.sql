@@ -97,3 +97,31 @@ CREATE TABLE sso_sessions (
 );
 
 CREATE UNIQUE INDEX ON sso_sessions(crsf_token);
+
+
+CREATE TABLE oauth2_sessions (
+    user_id BIGINT NOT NULL REFERENCES users(user_id),
+    crsf_token TEXT NOT NULL,
+    code_verifier TEXT NOT NULL
+);
+
+CREATE UNIQUE INDEX ON oauth2_sessions(crsf_token);
+
+
+CREATE TABLE oauth2_tokens (
+    token_id BIGSERIAL PRIMARY KEY,
+    user_id BIGINT NOT NULL REFERENCES users(user_id),
+    access_token TEXT NOT NULL,
+    refresh_token TEXT NOT NULL,
+    expiry TIMESTAMP WITH TIME ZONE NOT NULL
+);
+
+CREATE INDEX ON oauth2_tokens(user_id);
+CREATE INDEX ON oauth2_tokens(expiry);
+
+CREATE TABLE calendar_oauth2 (
+    calendar_id BIGINT NOT NULL REFERENCES calendars(calendar_id),
+    token_id BIGINT NOT NULL REFERENCES oauth2_tokens(token_id),
+);
+
+CREATE UNIQUE INDEX ON calendar_oauth2(calendar_id);

@@ -13,6 +13,9 @@ pub struct Config {
 
     #[serde(default)]
     pub app: AppConfig,
+
+    #[serde(default)]
+    pub google: Option<GoogleConfig>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -57,6 +60,23 @@ impl std::fmt::Debug for SsoConfig {
             .field("client_secret", &self.client_secret.is_some())
             .field("base_url", &self.base_url)
             .field("scopes", &self.scopes)
+            .finish()
+    }
+}
+
+#[derive(Clone, Deserialize, Default)]
+pub struct GoogleConfig {
+    pub client_id: String,
+    pub client_secret: Option<String>,
+    pub redirect_base_url: String,
+}
+
+impl std::fmt::Debug for GoogleConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("GoogleConfig")
+            .field("client_id", &self.client_id)
+            .field("client_secret", &self.client_secret.is_some())
+            .field("redirect_base_url", &self.redirect_base_url)
             .finish()
     }
 }

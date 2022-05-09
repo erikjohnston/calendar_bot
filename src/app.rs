@@ -22,6 +22,7 @@ use futures::future;
 use handlebars::Handlebars;
 use ics_parser::property::EndCondition;
 use itertools::Itertools;
+use oauth2::{basic::BasicClient, AuthUrl, TokenUrl};
 use openidconnect::{
     core::{CoreAuthenticationFlow, CoreClient, CoreProviderMetadata},
     reqwest::async_http_client,
@@ -172,6 +173,7 @@ pub struct App {
     pub hibob_id_to_email: Arc<Mutex<BTreeMap<String, String>>>,
     pub templates: Tera,
     sso_client: Option<OpenIDClient>,
+    google_client: Option<BasicClient>,
 }
 
 impl App {
@@ -206,6 +208,25 @@ impl App {
             None
         };
 
+        let google_client = if let Some(google_config) = &config.google {
+            let client = oauth2::basic::BasicClient::new(
+                ClientId::new(google_config.client_id.clone()),
+                google_config.client_secret.clone().map(ClientSecret::new),
+                AuthUrl::new("https://accounts.google.como/oauth2/auth".to_string())?,
+                Some(TokenUrl::new(
+                    "https://accounts.google.como/oauth2/token".to_string(),
+                )?),
+            )
+            .set_redirect_uri(RedirectUrl::new(format!(
+                "{}/oauth2/redirect",
+                google_config.redirect_base_url
+            ))?);
+
+            Some(client)
+        } else {
+            None
+        };
+
         Ok(Self {
             config,
             http_client,
@@ -216,6 +237,7 @@ impl App {
             templates,
             sso_client,
             hibob_id_to_email,
+            google_client,
         })
     }
 
@@ -841,6 +863,81 @@ impl App {
             .await?;
 
         Ok(token)
+    }
+
+    /// Start an OAuth2 session, returning the URL to redirect the client to.
+    pub async fn start_google_oauth_session(&self, user_id: i64) -> Result<Url, Error> {
+        let client = self
+            .google_client
+            .as_ref()
+            .context("Google not configured")?;
+
+        // Generate a PKCE challenge.
+        let (pkce_challenge, pkce_verifier) = PkceCodeChallenge::new_random_sha256();
+
+        // Generate the full authorization URL.
+        let (auth_url, csrf_token) = client
+            .authorize_url(CsrfToken::new_random)
+            // Set the desired scopes.
+            .add_scope(Scope::new(
+                "https://www.googleapis.com/auth/calendar".to_string(),
+            ))
+            // Set the PKCE code challenge.
+            .set_pkce_challenge(pkce_challenge)
+            .url();
+
+        self.database
+            .add_oauth2_session(user_id, csrf_token.secret(), pkce_verifier.secret())
+            .await?;
+
+        Ok(auth_url)
+    }
+
+    pub async fn finish_google_oauth_session(
+        &self,
+        state: &str,
+        code: String,
+    ) -> Result<String, Error> {
+        let (user_id, code_verifier) = self
+            .database
+            .claim_oauth2_session(&state)
+            .await?
+            .context("Unknown SSO session")?;
+
+        let pkce_verifier = PkceCodeVerifier::new(code_verifier);
+
+        let client = self
+            .google_client
+            .as_ref()
+            .context("Google not configured")?;
+
+        let token_result = client
+            .exchange_code(AuthorizationCode::new(code))
+            .set_pkce_verifier(pkce_verifier)
+            .request_async(async_http_client)
+            .await?;
+
+        let refresh_token = token_result
+            .refresh_token()
+            .context("missing refresh token")?;
+
+        let expires_in = token_result
+            .expires_in()
+            .unwrap_or_else(|| std::time::Duration::from_secs(60 * 60));
+
+        // We take five minutes off from the expiry time
+        let expiry = Utc::now() + Duration::from_std(expires_in)? - Duration::minutes(10);
+
+        self.database
+            .add_google_oauth_token(
+                user_id,
+                token_result.access_token().secret(),
+                refresh_token.secret(),
+                expiry,
+            )
+            .await?;
+
+        todo!()
     }
 }
 

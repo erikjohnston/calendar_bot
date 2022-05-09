@@ -5,6 +5,7 @@ use std::ops::Deref;
 
 use anyhow::{Context, Error};
 use chrono::{DateTime, Duration, FixedOffset, Utc};
+use oauth2::TokenResponse;
 use postgres_types::{FromSql, ToSql};
 use serde::{Deserialize, Serialize};
 use tokio_postgres::NoTls;
@@ -1274,5 +1275,77 @@ impl Database {
         let user_id = ret.get("user_id");
 
         Ok(user_id)
+    }
+
+    pub async fn add_google_oauth_token(
+        &self,
+        user_id: i64,
+        access_token: &str,
+        refresh_token: &str,
+        expiry: DateTime<Utc>,
+    ) -> Result<(), Error> {
+        let db_conn = self.db_pool.get().await?;
+
+        db_conn
+            .execute(
+                r#"
+            INSERT INTO oauth2_tokens (user_id, access_token, refresh_token, expiry)
+            VALUES ($1, $2, $3, $4)
+            "#,
+                &[&user_id, &access_token, &refresh_token, &expiry],
+            )
+            .await?;
+
+        Ok(())
+    }
+
+    /// Record a new in flight OAuth2 session.
+    pub async fn add_oauth2_session(
+        &self,
+        user_id: i64,
+        crsf_token: &str,
+        code_verifier: &str,
+    ) -> Result<(), Error> {
+        let db_conn = self.db_pool.get().await?;
+
+        db_conn
+            .execute(
+                r#"
+                INSERT INTO oauth2_sessions (user_id, crsf_token, code_verifier) VALUES ($1, $2, $3)
+                "#,
+                &[&user_id, &crsf_token, &code_verifier],
+            )
+            .await?;
+
+        Ok(())
+    }
+
+    /// Fetch (and delete) an in flight OAuth2 session based on the given token,
+    /// returning the associated user ID and code_verifier.
+    pub async fn claim_oauth2_session(
+        &self,
+        crsf_token: &str,
+    ) -> Result<Option<(i64, String)>, Error> {
+        let db_conn = self.db_pool.get().await?;
+
+        let ret = db_conn
+            .query_opt(
+                r#"
+                DELETE FROM oauth2_sessions
+                WHERE crsf_token = $1
+                RETURNING user_id, code_verifier
+                "#,
+                &[&crsf_token],
+            )
+            .await?;
+
+        if let Some(row) = ret {
+            let user_id: i64 = row.get(0);
+            let code_verifier: String = row.get(1);
+
+            return Ok(Some((user_id, code_verifier)));
+        }
+
+        Ok(None)
     }
 }
