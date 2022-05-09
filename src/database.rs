@@ -1370,7 +1370,7 @@ impl Database {
         db_conn
             .execute(
                 r#"
-            UPDATE oauth2_tokens (user_id, access_token, expiry)
+            UPDATE oauth2_tokens
             SET access_token = $3, expiry = $4
             WHERE token_id = $1 AND user_id = $2
             "#,
