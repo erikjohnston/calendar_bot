@@ -956,7 +956,7 @@ impl App {
         let mut calendars = body.items;
 
         // Sort the calendars so the primary one is first.
-        calendars.sort_by_key(|c| c.primary);
+        calendars.sort_by_key(|c| !c.primary);
 
         Ok(TryAuthenticatedAPI::Success(calendars))
     }
