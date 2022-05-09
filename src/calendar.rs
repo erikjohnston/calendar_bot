@@ -41,7 +41,7 @@ pub async fn fetch_calendars(
         .header("Content-Type", "application/xml");
 
     match authentication {
-        CalendarAuthentication::None => todo!(),
+        CalendarAuthentication::None => {}
         CalendarAuthentication::Basic {
             user_name,
             password,
