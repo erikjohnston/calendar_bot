@@ -273,6 +273,7 @@ impl App {
             self.reminder_loop(),
             self.update_mappings_loop(),
             self.hibob_loop(),
+            self.refresh_oauth2_tokens(),
         );
     }
 
@@ -681,6 +682,73 @@ impl App {
         }
     }
 
+    /// An infinite loop that checks for any oauth2 tokens that need refreshing
+    async fn refresh_oauth2_tokens(&self) {
+        loop {
+            match self.refresh_oauth2_tokens_iter().await {
+                Ok(duration) => {
+                    sleep(
+                        duration
+                            .to_std()
+                            .unwrap_or_else(|_| std::time::Duration::from_secs(60)),
+                    )
+                    .await;
+                }
+                Err(err) => {
+                    error!(
+                        error = err.deref() as &dyn StdError,
+                        "Failed to refresh oauth2 token"
+                    );
+                    sleep(std::time::Duration::from_secs(60)).await
+                }
+            };
+        }
+    }
+
+    /// Check if there is an oauth2 token that needs refreshing
+    #[instrument(skip(self))]
+    async fn refresh_oauth2_tokens_iter(&self) -> Result<Duration, Error> {
+        let (token_id, refresh_token, expiry) = if let Some(row) = self
+            .database
+            .get_next_oauth2_access_token_needing_refresh()
+            .await?
+        {
+            row
+        } else {
+            // No oauth2 tokens, so we wait five minutes before checking again.
+            return Ok(Duration::minutes(5));
+        };
+
+        if expiry > Utc::now() {
+            // Sleep until the expiry, waking up at most in five minutes
+            return Ok((expiry - Utc::now()).min(Duration::minutes(5)));
+        }
+
+        info!(token_id, "Refreshing google OAuth2 token");
+
+        let client = self
+            .google_client
+            .as_ref()
+            .context("Google not configured")?;
+
+        let token_result = client
+            .exchange_refresh_token(&RefreshToken::new(refresh_token))
+            .request_async(async_http_client)
+            .await?;
+
+        let expires_in = token_result
+            .expires_in()
+            .unwrap_or_else(|| std::time::Duration::from_secs(60 * 60));
+
+        let expiry = Utc::now() + Duration::from_std(expires_in)? - Duration::minutes(10);
+
+        self.database
+            .update_google_oauth_token(token_id, token_result.access_token().secret(), expiry)
+            .await?;
+
+        return Ok(Duration::seconds(0));
+    }
+
     /// Fetch who is on holiday today.
     #[instrument(skip(self, config), fields(status))]
     async fn update_holidays(&self, config: &HiBobConfig) -> Result<(), Error> {
@@ -924,7 +992,6 @@ impl App {
 
                 self.database
                     .update_google_oauth_token(
-                        user_id,
                         token_id,
                         token_result.access_token().secret(),
                         expiry,

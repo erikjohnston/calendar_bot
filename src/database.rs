@@ -1371,7 +1371,6 @@ impl Database {
 
     pub async fn update_google_oauth_token(
         &self,
-        user_id: i64,
         token_id: i64,
         access_token: &str,
         expiry: DateTime<Utc>,
@@ -1382,10 +1381,10 @@ impl Database {
             .execute(
                 r#"
             UPDATE oauth2_tokens
-            SET access_token = $3, expiry = $4
-            WHERE token_id = $1 AND user_id = $2
+            SET access_token = $2, expiry = $3
+            WHERE token_id = $1
             "#,
-                &[&token_id, &user_id, &access_token, &expiry],
+                &[&token_id, &access_token, &expiry],
             )
             .await?;
 
@@ -1442,6 +1441,38 @@ impl Database {
         }
 
         Ok(None)
+    }
+
+    /// Get the next OAuth2 token used for calendars that needs refreshing soon.
+    pub async fn get_next_oauth2_access_token_needing_refresh(
+        &self,
+    ) -> Result<Option<(i64, String, DateTime<Utc>)>, Error> {
+        let db_conn = self.db_pool.get().await?;
+
+        let expiry_limit = Utc::now() + Duration::minutes(5);
+
+        let ret = db_conn
+            .query_opt(
+                r#"
+                SELECT token_id, refresh_token, expiry
+                FROM oauth2_tokens
+                INNER JOIN calendar_oauth2 USING (token_id)
+                ORDER BY expiry
+                LIMIT 1
+            "#,
+                &[&expiry_limit],
+            )
+            .await?;
+
+        if let Some(row) = ret {
+            let token_id = row.try_get("token_id")?;
+            let refresh_token = row.try_get("refresh_token")?;
+            let expiry = row.try_get("expiry")?;
+
+            Ok(Some((token_id, refresh_token, expiry)))
+        } else {
+            Ok(None)
+        }
     }
 
     pub async fn get_oauth2_access_token(&self, user_id: i64) -> Result<OAuth2Result, Error> {
