@@ -46,6 +46,7 @@ pub async fn fetch_calendars(
             user_name,
             password,
         } => req = req.basic_auth(user_name, Some(password)),
+        CalendarAuthentication::Bearer { access_token } => req = req.bearer_auth(access_token),
     }
 
     let resp = req

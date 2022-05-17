@@ -27,13 +27,14 @@ pub struct Attendee {
 pub enum CalendarAuthentication {
     None,
     Basic { user_name: String, password: String },
+    Bearer { access_token: String },
 }
 
 impl std::fmt::Debug for CalendarAuthentication {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::None => write!(f, "None"),
-            Self::Basic {
+            CalendarAuthentication::None => write!(f, "None"),
+            CalendarAuthentication::Basic {
                 user_name,
                 password: _,
             } => f
@@ -41,6 +42,7 @@ impl std::fmt::Debug for CalendarAuthentication {
                 .field("user_name", user_name)
                 .field("password", &"<password>")
                 .finish(),
+            CalendarAuthentication::Bearer { .. } => f.debug_struct("Bearer").finish(),
         }
     }
 }
@@ -137,9 +139,14 @@ impl Database {
         let rows = db_conn
             .query(
                 r#"
-                SELECT user_id, calendar_id, name, url, cp.user_name, cp.password
-                FROM calendars
+                SELECT
+                    c.user_id, c.calendar_id, c.name, c.url,
+                    cp.user_name, cp.password,
+                    at.access_token
+                FROM calendars AS c
                 LEFT JOIN calendar_passwords AS cp USING (calendar_id)
+                LEFT JOIN calendar_oauth2 AS co USING (calendar_id)
+                LEFT JOIN oauth2_tokens AS at USING (token_id)
                 "#,
                 &[],
             )
@@ -154,11 +161,15 @@ impl Database {
             let user_name = row.try_get("user_name")?;
             let password = row.try_get("password")?;
 
+            let access_token = row.try_get("access_token")?;
+
             let authentication = if let (Some(user_name), Some(password)) = (user_name, password) {
                 CalendarAuthentication::Basic {
                     user_name,
                     password,
                 }
+            } else if let Some(access_token) = access_token {
+                CalendarAuthentication::Bearer { access_token }
             } else {
                 CalendarAuthentication::None
             };

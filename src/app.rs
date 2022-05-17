@@ -904,6 +904,8 @@ impl App {
                 refresh_token,
                 token_id,
             } => {
+                info!(token_id, "Refreshing google OAuth2 token");
+
                 let client = self
                     .google_client
                     .as_ref()
@@ -965,6 +967,8 @@ impl App {
     ///
     /// Takes the user ID of the authenticated user and the path they were trying to access.
     pub async fn start_google_oauth_session(&self, user_id: i64, path: &str) -> Result<Url, Error> {
+        info!("Starting google OAuth2 session");
+
         let client = self
             .google_client
             .as_ref()

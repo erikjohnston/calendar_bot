@@ -122,7 +122,7 @@ CREATE INDEX ON oauth2_tokens(expiry);
 
 CREATE TABLE calendar_oauth2 (
     calendar_id BIGINT NOT NULL REFERENCES calendars(calendar_id),
-    token_id BIGINT NOT NULL REFERENCES oauth2_tokens(token_id),
+    token_id BIGINT NOT NULL REFERENCES oauth2_tokens(token_id)
 );
 
 CREATE UNIQUE INDEX ON calendar_oauth2(calendar_id);
