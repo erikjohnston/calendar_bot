@@ -1460,7 +1460,7 @@ impl Database {
                 ORDER BY expiry
                 LIMIT 1
             "#,
-                &[&expiry_limit],
+                &[],
             )
             .await?;
 
