@@ -117,7 +117,7 @@ pub enum OAuth2Result {
     },
 
     /// User has a (probably) valid access token
-    AccessToken(String),
+    AccessToken { access_token: String, token_id: i64 },
 }
 
 /// Allows talking to the database.
@@ -355,7 +355,7 @@ impl Database {
     }
 
     /// Add a new calendar.
-    pub async fn add_calendar(
+    pub async fn add_calendar_basic_auth(
         &self,
         user_id: i64,
         name: String,
@@ -383,13 +383,52 @@ impl Database {
         if let (Some(user_name), Some(password)) = (user_name, password) {
             txn.execute(
                 r#"
-                    INSERT INTO calendars (calendar_id, user_name, password)
+                    INSERT INTO calendar_passwords (calendar_id, user_name, password)
                     VALUES ($1, $2, $3)
                 "#,
                 &[&calendar_id, &user_name, &password],
             )
             .await?;
         }
+
+        txn.commit().await?;
+
+        Ok(calendar_id)
+    }
+
+    /// Add a new OAuth2.
+    pub async fn add_calendar_oauth2(
+        &self,
+        user_id: i64,
+        name: String,
+        url: String,
+        token_id: i64,
+    ) -> Result<i64, Error> {
+        let mut db_conn = self.db_pool.get().await?;
+
+        let txn = db_conn.transaction().await?;
+
+        let row = txn
+            .query_one(
+                r#"
+                    INSERT INTO calendars (user_id, name, url)
+                    VALUES ($1, $2, $3)
+                    RETURNING calendar_id
+                "#,
+                &[&user_id, &name, &url],
+            )
+            .await?;
+
+        let calendar_id = row.try_get(0)?;
+
+        txn.execute(
+            r#"
+                INSERT INTO calendar_oauth2 (calendar_id, token_id)
+                VALUES ($1, $2)
+            "#,
+            &[&calendar_id, &token_id],
+        )
+        .await?;
 
         txn.commit().await?;
 
@@ -1449,8 +1488,6 @@ impl Database {
     ) -> Result<Option<(i64, String, DateTime<Utc>)>, Error> {
         let db_conn = self.db_pool.get().await?;
 
-        let expiry_limit = Utc::now() + Duration::minutes(5);
-
         let ret = db_conn
             .query_opt(
                 r#"
@@ -1496,7 +1533,10 @@ impl Database {
             let expiry: DateTime<Utc> = row.try_get("expiry")?;
 
             if expiry < Utc::now() {
-                Ok(OAuth2Result::AccessToken(access_token))
+                Ok(OAuth2Result::AccessToken {
+                    access_token,
+                    token_id,
+                })
             } else {
                 Ok(OAuth2Result::RefreshToken {
                     refresh_token,

@@ -746,7 +746,7 @@ impl App {
             .update_google_oauth_token(token_id, token_result.access_token().secret(), expiry)
             .await?;
 
-        return Ok(Duration::seconds(0));
+        Ok(Duration::seconds(0))
     }
 
     /// Fetch who is on holiday today.
@@ -961,8 +961,8 @@ impl App {
         &self,
         path: &str,
         user_id: i64,
-    ) -> Result<TryAuthenticatedAPI<Vec<GoogleCalendarListItem>>, Error> {
-        let access_token = match self.database.get_oauth2_access_token(user_id).await? {
+    ) -> Result<TryAuthenticatedAPI<(i64, Vec<GoogleCalendarListItem>)>, Error> {
+        let (token_id, access_token) = match self.database.get_oauth2_access_token(user_id).await? {
             OAuth2Result::None => {
                 let redirect_url = self.start_google_oauth_session(user_id, path).await?;
 
@@ -998,9 +998,12 @@ impl App {
                     )
                     .await?;
 
-                token_result.access_token().clone()
+                (token_id, token_result.access_token().clone())
             }
-            OAuth2Result::AccessToken(access_token) => AccessToken::new(access_token),
+            OAuth2Result::AccessToken {
+                access_token,
+                token_id,
+            } => (token_id, AccessToken::new(access_token)),
         };
 
         let response = self
@@ -1027,7 +1030,7 @@ impl App {
         // Sort the calendars so the primary one is first.
         calendars.sort_by_key(|c| !c.primary);
 
-        Ok(TryAuthenticatedAPI::Success(calendars))
+        Ok(TryAuthenticatedAPI::Success((token_id, calendars)))
     }
 
     /// Start an OAuth2 session, returning the URL to redirect the client to.
@@ -1070,7 +1073,7 @@ impl App {
     ) -> Result<String, Error> {
         let (user_id, code_verifier, path) = self
             .database
-            .claim_oauth2_session(&state)
+            .claim_oauth2_session(state)
             .await?
             .context("Unknown OAuth2 session")?;
 

@@ -777,7 +777,54 @@ async fn add_new_calendar_html(
 
     let calendar_id = app
         .database
-        .add_calendar(*user, name, url, user_name, password)
+        .add_calendar_basic_auth(*user, name, url, user_name, password)
+        .await
+        .map_err(ErrorInternalServerError)?;
+
+    let new_calendar = app
+        .database
+        .get_calendar(calendar_id)
+        .await
+        .map_err(ErrorInternalServerError)?
+        .ok_or_else(|| ErrorNotFound("No such calendar"))?;
+
+    app.update_calendar(new_calendar)
+        .await
+        .map_err(ErrorInternalServerError)?;
+
+    let mut builder = HttpResponse::SeeOther();
+    builder.insert_header(("Location", format!("/calendar/{}?state=saved", calendar_id)));
+    let response = builder.finish();
+
+    Ok(response)
+}
+
+/// Form body for editing a calendar's config
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct UpdateCalendarOAuth2Form {
+    pub name: String,
+    pub url: String,
+    pub token_id: Option<i64>,
+}
+
+/// Add a new calendar page.
+#[post("/calendar/new_oauth2")]
+async fn add_oauth2_calendar_html(
+    app: Data<App>,
+    data: Form<UpdateCalendarOAuth2Form>,
+    user: AuthedUser,
+) -> Result<impl Responder, actix_web::Error> {
+    let UpdateCalendarOAuth2Form {
+        name,
+        url,
+        token_id,
+    } = data.into_inner();
+
+    let token_id = token_id.ok_or_else(|| ErrorBadRequest("Missing token ID"))?;
+
+    let calendar_id = app
+        .database
+        .add_calendar_oauth2(*user, name, url, token_id)
         .await
         .map_err(ErrorInternalServerError)?;
 
@@ -997,7 +1044,7 @@ async fn google_calendars(
     app: Data<App>,
     user: AuthedUser,
 ) -> Result<impl Responder, actix_web::Error> {
-    let calendars = match app
+    let (token_id, calendars) = match app
         .get_google_calendars("/google_calendars", user.0)
         .await
         .map_err(ErrorInternalServerError)?
@@ -1017,6 +1064,7 @@ async fn google_calendars(
         .map_err(ErrorInternalServerError)?;
 
     let context = json!({
+        "token_id": token_id,
         "calendars": calendars,
         "email": email,
     });
@@ -1170,6 +1218,7 @@ pub async fn run_server(app: App) -> Result<(), Error> {
             .service(list_calendars_html)
             .service(new_calendar_html)
             .service(add_new_calendar_html)
+            .service(add_oauth2_calendar_html)
             .service(get_calendar_html)
             .service(edit_calendar_html)
             .service(delete_calendar_html)
