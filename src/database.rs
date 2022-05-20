@@ -342,6 +342,15 @@ impl Database {
 
         txn.execute(
             r#"
+                    DELETE FROM calendar_oauth2
+                    WHERE calendar_id = $1
+                "#,
+            &[&calendar_id],
+        )
+        .await?;
+
+        txn.execute(
+            r#"
                     DELETE FROM calendars
                     WHERE calendar_id = $1
                 "#,
