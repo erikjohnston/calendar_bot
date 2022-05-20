@@ -132,23 +132,29 @@ impl Database {
         Database { db_pool }
     }
 
-    /// Fetch stored calendar info.
-    pub async fn get_calendars(&self) -> Result<Vec<Calendar>, Error> {
+    async fn get_calendars_with_filter(
+        &self,
+        extra_sql: &str,
+        params: &[&(dyn ToSql + Sync)],
+    ) -> Result<Vec<Calendar>, Error> {
         let db_conn = self.db_pool.get().await?;
 
         let rows = db_conn
             .query(
-                r#"
-                SELECT
-                    c.user_id, c.calendar_id, c.name, c.url,
-                    cp.user_name, cp.password,
-                    at.access_token
-                FROM calendars AS c
-                LEFT JOIN calendar_passwords AS cp USING (calendar_id)
-                LEFT JOIN calendar_oauth2 AS co USING (calendar_id)
-                LEFT JOIN oauth2_tokens AS at USING (token_id)
-                "#,
-                &[],
+                &format!(
+                    r#"
+                    SELECT
+                        c.user_id, c.calendar_id, c.name, c.url,
+                        cp.user_name, cp.password,
+                        at.access_token
+                    FROM calendars AS c
+                    LEFT JOIN calendar_passwords AS cp USING (calendar_id)
+                    LEFT JOIN calendar_oauth2 AS co USING (calendar_id)
+                    LEFT JOIN oauth2_tokens AS at USING (token_id)
+                    {extra_sql}
+                    "#,
+                ),
+                params,
             )
             .await?;
 
@@ -186,94 +192,28 @@ impl Database {
         Ok(calendars)
     }
 
+    /// Fetch stored calendar info.
+    pub async fn get_calendars(&self) -> Result<Vec<Calendar>, Error> {
+        let calendars = self.get_calendars_with_filter("", &[]).await?;
+        Ok(calendars)
+    }
+
     /// Get all calendars for a given user.
     pub async fn get_calendars_for_user(&self, user_id: i64) -> Result<Vec<Calendar>, Error> {
-        let db_conn = self.db_pool.get().await?;
-
-        let rows = db_conn
-            .query(
-                r#"
-                SELECT calendar_id, name, url, cp.user_name, cp.password
-                FROM calendars
-                LEFT JOIN calendar_passwords AS cp USING (calendar_id)
-                    WHERE user_id = $1
-                "#,
-                &[&user_id],
-            )
+        let calendars = self
+            .get_calendars_with_filter("WHERE user_id = $1", &[&user_id])
             .await?;
-
-        let mut calendars = Vec::with_capacity(rows.len());
-        for row in rows {
-            let calendar_id = row.try_get("calendar_id")?;
-            let name = row.try_get("name")?;
-            let url = row.try_get("url")?;
-            let user_name = row.try_get("user_name")?;
-            let password = row.try_get("password")?;
-
-            let authentication = if let (Some(user_name), Some(password)) = (user_name, password) {
-                CalendarAuthentication::Basic {
-                    user_name,
-                    password,
-                }
-            } else {
-                CalendarAuthentication::None
-            };
-
-            calendars.push(Calendar {
-                user_id,
-                calendar_id,
-                name,
-                url,
-                authentication,
-            })
-        }
 
         Ok(calendars)
     }
 
     /// Get a calendar by ID.
     pub async fn get_calendar(&self, calendar_id: i64) -> Result<Option<Calendar>, Error> {
-        let db_conn = self.db_pool.get().await?;
-
-        let row = db_conn
-            .query_opt(
-                r#"
-                    SELECT user_id, calendar_id, name, url, cp.user_name, cp.password
-                    FROM calendars
-                    LEFT JOIN calendar_passwords AS cp USING (calendar_id)
-                    WHERE calendar_id = $1
-                "#,
-                &[&calendar_id],
-            )
+        let mut calendars = self
+            .get_calendars_with_filter("WHERE calendar_id = $1", &[&calendar_id])
             .await?;
 
-        if let Some(row) = row {
-            let user_id = row.try_get("user_id")?;
-            let calendar_id = row.try_get("calendar_id")?;
-            let name = row.try_get("name")?;
-            let url = row.try_get("url")?;
-            let user_name = row.try_get("user_name")?;
-            let password = row.try_get("password")?;
-
-            let authentication = if let (Some(user_name), Some(password)) = (user_name, password) {
-                CalendarAuthentication::Basic {
-                    user_name,
-                    password,
-                }
-            } else {
-                CalendarAuthentication::None
-            };
-
-            Ok(Some(Calendar {
-                user_id,
-                calendar_id,
-                name,
-                url,
-                authentication,
-            }))
-        } else {
-            Ok(None)
-        }
+        Ok(calendars.pop())
     }
 
     /// Update a calendar's config.
