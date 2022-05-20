@@ -23,8 +23,8 @@
         Description: {{ calendar.description }}<br />
         ID: {{ calendar.id }}<br />
         <form method="post">
-            <input type="hidden" name="url" value="https://apidata.googleusercontent.com/caldav/v2/{{ calendar.id }}/events" />
-            <input type="hidden" name="name" value="Google ─ {{ calendar.summary }}" />
+            <input type="hidden" name="google_id" value="{{ calendar.id }}" />
+            <input type="hidden" name="name" value="Google — {{ calendar.summary }}" />
             <input type="hidden" name="token_id" value="{{ token_id }}" />
             <input type="submit" value="Add" formaction="/calendar/new_oauth2" />
         </form>

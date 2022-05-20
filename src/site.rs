@@ -16,6 +16,7 @@ use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tracing_actix_web::TracingLogger;
+use urlencoding::encode;
 
 use crate::database::Reminder;
 use crate::{app::TryAuthenticatedAPI, auth::AuthedUser};
@@ -802,8 +803,8 @@ async fn add_new_calendar_html(
 /// Form body for editing a calendar's config
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct UpdateCalendarOAuth2Form {
+    pub google_id: String,
     pub name: String,
-    pub url: String,
     pub token_id: Option<i64>,
 }
 
@@ -815,10 +816,15 @@ async fn add_oauth2_calendar_html(
     user: AuthedUser,
 ) -> Result<impl Responder, actix_web::Error> {
     let UpdateCalendarOAuth2Form {
+        google_id,
         name,
-        url,
         token_id,
     } = data.into_inner();
+
+    let url = format!(
+        "https://apidata.googleusercontent.com/caldav/v2/{}/events",
+        encode(&google_id)
+    );
 
     let token_id = token_id.ok_or_else(|| ErrorBadRequest("Missing token ID"))?;
 
