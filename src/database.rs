@@ -201,7 +201,7 @@ impl Database {
     /// Get all calendars for a given user.
     pub async fn get_calendars_for_user(&self, user_id: i64) -> Result<Vec<Calendar>, Error> {
         let calendars = self
-            .get_calendars_with_filter("WHERE user_id = $1", &[&user_id])
+            .get_calendars_with_filter("WHERE c.user_id = $1", &[&user_id])
             .await?;
 
         Ok(calendars)
@@ -210,7 +210,7 @@ impl Database {
     /// Get a calendar by ID.
     pub async fn get_calendar(&self, calendar_id: i64) -> Result<Option<Calendar>, Error> {
         let mut calendars = self
-            .get_calendars_with_filter("WHERE calendar_id = $1", &[&calendar_id])
+            .get_calendars_with_filter("WHERE c.calendar_id = $1", &[&calendar_id])
             .await?;
 
         Ok(calendars.pop())
