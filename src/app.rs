@@ -30,6 +30,7 @@ use openidconnect::{
     OAuth2TokenResponse, PkceCodeChallenge, PkceCodeVerifier, RedirectUrl, Scope, TokenResponse,
 };
 use rand::{distributions::Alphanumeric, Rng};
+use sentry::integrations::anyhow::capture_anyhow;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tera::Tera;
@@ -285,6 +286,7 @@ impl App {
         for db_calendar in db_calendars {
             let calendar_id = db_calendar.calendar_id;
             if let Err(error) = self.update_calendar(db_calendar).await {
+                capture_anyhow(&error);
                 error!(
                     error = error.deref() as &dyn StdError,
                     calendar_id, "Failed to update calendar"
@@ -462,6 +464,7 @@ impl App {
             interval.tick().await;
 
             if let Err(error) = self.update_calendars().await {
+                capture_anyhow(&error);
                 error!(
                     error = error.deref() as &dyn StdError,
                     "Failed to update calendars"
@@ -479,6 +482,7 @@ impl App {
             interval.tick().await;
 
             if let Err(error) = self.update_mappings().await {
+                capture_anyhow(&error);
                 error!(
                     error = error.deref() as &dyn StdError,
                     "Failed to update mappings"
@@ -525,6 +529,7 @@ impl App {
             for reminder in reminders {
                 info!(event_id = reminder.event_id.deref(), "Sending reminder");
                 if let Err(err) = self.send_reminder(reminder).await {
+                    capture_anyhow(&err);
                     error!(
                         error = err.deref() as &dyn StdError,
                         "Failed to send reminder"
@@ -667,6 +672,7 @@ impl App {
             interval.tick().await;
 
             if let Err(error) = self.update_email_mappings(config).await {
+                capture_anyhow(&error);
                 error!(
                     error = error.deref() as &dyn StdError,
                     "Failed to update email mappings"
@@ -674,6 +680,7 @@ impl App {
             }
 
             if let Err(error) = self.update_holidays(config).await {
+                capture_anyhow(&error);
                 error!(
                     error = error.deref() as &dyn StdError,
                     "Failed to update holidays"
@@ -695,6 +702,7 @@ impl App {
                     .await;
                 }
                 Err(err) => {
+                    capture_anyhow(&err);
                     error!(
                         error = err.deref() as &dyn StdError,
                         "Failed to refresh oauth2 token"

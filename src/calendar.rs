@@ -8,6 +8,7 @@ use ics_parser::{
     property::PropertyValue,
 };
 use reqwest::Method;
+use sentry::integrations::anyhow::capture_anyhow;
 use tracing::{error, info, instrument, Span};
 use url::Url;
 
@@ -101,10 +102,13 @@ pub async fn fetch_calendars(
 
         match decode_calendar(cal_body) {
             Ok(cals) => calendars.extend(cals),
-            Err(e) => error!(
-                error = e.deref() as &dyn std::error::Error,
-                "Failed to parse event"
-            ),
+            Err(e) => {
+                capture_anyhow(&e);
+                error!(
+                    error = e.deref() as &dyn std::error::Error,
+                    "Failed to parse event"
+                )
+            }
         }
     }
 
