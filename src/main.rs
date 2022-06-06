@@ -27,6 +27,7 @@ use app::App;
 use database::Database;
 use tera::Tera;
 use tokio::task::spawn_local;
+use tracing_subscriber::filter::EnvFilter;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 
@@ -42,6 +43,7 @@ const DEFAULT_TEMPLATE: &str = r#"
 #[actix_web::main]
 async fn main() -> Result<(), Error> {
     tracing_subscriber::registry()
+        .with(EnvFilter::from_default_env())
         .with(tracing_subscriber::fmt::layer())
         .with(sentry_tracing::layer())
         .init();
