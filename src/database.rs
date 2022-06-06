@@ -1365,12 +1365,6 @@ impl Database {
         // We only want one oauth2 token per user provisioned at a time, so we
         // delete any existing ones.
         txn.execute(
-            r#"DELETE FROM oauth2_tokens WHERE user_id = $1"#,
-            &[&user_id],
-        )
-        .await?;
-
-        txn.execute(
             r#"
             INSERT INTO oauth2_tokens (user_id, access_token, refresh_token, expiry)
             VALUES ($1, $2, $3, $4)
