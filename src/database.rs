@@ -273,6 +273,33 @@ impl Database {
 
         txn.execute(
             r#"
+                    DELETE FROM next_dates
+                    WHERE calendar_id = $1
+                "#,
+            &[&calendar_id],
+        )
+        .await?;
+
+        txn.execute(
+            r#"
+                    DELETE FROM reminders
+                    WHERE calendar_id = $1
+                "#,
+            &[&calendar_id],
+        )
+        .await?;
+
+        txn.execute(
+            r#"
+                    DELETE FROM events
+                    WHERE calendar_id = $1
+                "#,
+            &[&calendar_id],
+        )
+        .await?;
+
+        txn.execute(
+            r#"
                     DELETE FROM calendar_passwords
                     WHERE calendar_id = $1
                 "#,

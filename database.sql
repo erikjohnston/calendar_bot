@@ -1,6 +1,6 @@
 CREATE TABLE calendars (
     calendar_id BIGSERIAL PRIMARY KEY,
-    user_id bigint NOT NULL,
+    user_id bigint NOT NULL REFERENCES users(user_id),
     name TEXT NOT NULL,
     url text NOT NULL
 );
@@ -21,7 +21,7 @@ CREATE TYPE "Attendee" AS (
 
 
 CREATE TABLE events (
-    calendar_id bigint NOT NULL,
+    calendar_id bigint NOT NULL REFERENCES calendars(calendar_id),
     event_id text NOT NULL,
     summary text,
     description text,
@@ -34,10 +34,11 @@ CREATE UNIQUE INDEX ON events USING btree (calendar_id, event_id);
 
 
 CREATE TABLE next_dates (
-    calendar_id bigint NOT NULL,
+    calendar_id bigint NOT NULL REFERENCES calendars(calendar_id),
     event_id text NOT NULL,
     "timestamp" timestamp with time zone NOT NULL,
     attendees "Attendee"[] NOT NULL
+    FOREIGN KEY (calendar_id, event_id) REFERENCES events (calendar_id, event_id)
 );
 
 CREATE INDEX ON next_dates USING btree (calendar_id, event_id);
@@ -45,13 +46,14 @@ CREATE INDEX ON next_dates USING btree (calendar_id, event_id);
 
 CREATE TABLE reminders (
     reminder_id BIGSERIAL PRIMARY KEY,
-    user_id bigint NOT NULL,
-    calendar_id bigint NOT NULL,
+    user_id bigint NOT NULL REFERENCES users(user_id),
+    calendar_id bigint NOT NULL REFERENCES calendars(calendar_id),
     event_id text NOT NULL,
     room text NOT NULL,
     minutes_before bigint NOT NULL,
     template text,
-    attendee_editable boolean NOT NULL
+    attendee_editable boolean NOT NULL,
+    FOREIGN KEY (calendar_id, event_id) REFERENCES events (calendar_id, event_id)
 );
 
 CREATE INDEX ON reminders(event_id);
@@ -75,7 +77,7 @@ CREATE INDEX ON email_to_matrix_id(matrix_id);
 
 CREATE TABLE access_tokens (
     access_token_id BIGSERIAL PRIMARY KEY,
-    user_id BIGINT NOT NULL,
+    user_id BIGINT NOT NULL REFERENCES users(user_id),
     token TEXT NOT NULL,
     expiry TIMESTAMP WITH TIME ZONE NOT NULL
 );
