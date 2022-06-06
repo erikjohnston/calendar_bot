@@ -16,6 +16,9 @@ pub struct Config {
 
     #[serde(default)]
     pub google: Option<GoogleConfig>,
+
+    #[serde(default)]
+    pub sentry: Option<SentryConfig>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -79,4 +82,9 @@ impl std::fmt::Debug for GoogleConfig {
             .field("redirect_base_url", &self.redirect_base_url)
             .finish()
     }
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct SentryConfig {
+    pub dsn: String,
 }

@@ -27,6 +27,8 @@ use app::App;
 use database::Database;
 use tera::Tera;
 use tokio::task::spawn_local;
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
 
 /// Default markdown template used for generating reminder events.
 const DEFAULT_TEMPLATE: &str = r#"
@@ -39,7 +41,10 @@ const DEFAULT_TEMPLATE: &str = r#"
 /// Entry point.
 #[actix_web::main]
 async fn main() -> Result<(), Error> {
-    tracing_subscriber::fmt::init();
+    tracing_subscriber::registry()
+        .with(tracing_subscriber::fmt::layer())
+        .with(sentry_tracing::layer())
+        .init();
 
     let matches = clap::app_from_crate!()
         .arg(
@@ -63,6 +68,20 @@ async fn main() -> Result<(), Error> {
     let config: Config =
         toml::from_slice(&fs::read(&config_file).with_context(|| "Reading config file")?)
             .with_context(|| "Parsing config file")?;
+
+    let _guard = if let Some(sentry_config) = &config.sentry {
+        let guard = sentry::init((
+            &*sentry_config.dsn,
+            sentry::ClientOptions {
+                release: sentry::release_name!(),
+                ..Default::default()
+            },
+        ));
+
+        Some(guard)
+    } else {
+        None
+    };
 
     match matches.subcommand() {
         ("create-user", Some(submatches)) => create_user(config, submatches).await,
