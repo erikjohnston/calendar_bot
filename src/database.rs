@@ -633,7 +633,7 @@ impl Database {
                         organizer, e.attendees AS event_attendees, i.attendees AS instance_attendees
                     FROM events AS e
                     INNER JOIN next_dates AS i USING (calendar_id, event_id)
-                    WHERE calendar_id = $1
+                    WHERE calendar_id = $1 AND timestamp > now()
                     ORDER BY event_id, timestamp
                 "#,
                 &[&calendar_id],
@@ -702,7 +702,7 @@ impl Database {
                     FROM calendars
                     INNER JOIN events AS e USING (calendar_id)
                     INNER JOIN next_dates AS i USING (calendar_id, event_id)
-                    WHERE user_id = $1
+                    WHERE user_id = $1 AND timestamp > now()
                     ORDER BY calendar_id, event_id, timestamp
                 "#,
                 &[&user_id],
