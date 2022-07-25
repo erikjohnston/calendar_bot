@@ -1129,7 +1129,7 @@ dependencies = [
 [[package]]
 name = "ics_parser"
 version = "0.1.0"
-source = "git+https://github.com/erikjohnston/ics_parser?branch=main#a962ceb77ffed51fff93b0568b66a3f7b02d1763"
+source = "git+https://github.com/erikjohnston/ics_parser?branch=main#b254fddcd7469f405960007efdc7ccbdfde0a7dc"
 dependencies = [
  "anyhow",
  "base64 0.12.3",
