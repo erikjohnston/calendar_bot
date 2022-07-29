@@ -1081,10 +1081,17 @@ async fn list_google_accounts(
         .await
         .map_err(ErrorInternalServerError)?;
 
+    let email = app
+        .database
+        .get_email(user.0)
+        .await
+        .map_err(ErrorInternalServerError)?;
+
     let context = json!({
         "accounts": token_ids.into_iter().map(|i| json!({
             "token_id": i
         })).collect::<Vec<_>>(),
+        "email": email,
     });
 
     let result = app
