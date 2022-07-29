@@ -401,10 +401,7 @@ impl App {
                     .await?;
 
                 // We only want to apply this logic for reminders that this user owns.
-                reminders = reminders
-                    .into_iter()
-                    .filter(|r| r.user_id == db_calendar.user_id)
-                    .collect();
+                reminders.retain(|r| r.user_id == db_calendar.user_id);
 
                 info!(
                     calendar_id = db_calendar.calendar_id,
