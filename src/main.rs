@@ -9,10 +9,7 @@ use std::{fs, path::Path};
 use anyhow::{Context, Error};
 use bb8_postgres::tokio_postgres::NoTls;
 
-use clap::{
-    crate_authors, crate_description, crate_name, crate_version, value_t_or_exit, Arg, ArgMatches,
-    SubCommand,
-};
+use clap::{value_t_or_exit, Arg, ArgMatches, SubCommand};
 
 use config::Config;
 
@@ -48,10 +45,10 @@ async fn main() -> Result<(), Error> {
         .with(sentry_tracing::layer())
         .init();
 
-    let matches = clap::app_from_crate!()
+    let matches = clap::command!()
         .arg(
             Arg::with_name("config")
-                .short("c")
+                .short('c')
                 .long("config")
                 .value_name("FILE")
                 .help("The path to the config file")
@@ -86,7 +83,7 @@ async fn main() -> Result<(), Error> {
     };
 
     match matches.subcommand() {
-        ("create-user", Some(submatches)) => create_user(config, submatches).await,
+        Some(("create-user", submatches)) => create_user(config, submatches).await,
         _ => start(config).await,
     }
 }
@@ -100,7 +97,7 @@ async fn create_database(config: &Config) -> Result<Database, Error> {
     Ok(Database::from_pool(db_pool))
 }
 
-async fn create_user(config: Config, args: &ArgMatches<'_>) -> Result<(), Error> {
+async fn create_user(config: Config, args: &ArgMatches) -> Result<(), Error> {
     let database = create_database(&config).await?;
     let username = args.value_of("username").unwrap();
     let password = args.value_of("password").unwrap();

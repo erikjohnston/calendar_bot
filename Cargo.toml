@@ -13,30 +13,30 @@ chrono = { version = "0.4.19", features = ["serde"] }
 roxmltree = "0.14.0"
 tokio-postgres ={ version = "0.7.0", features = ["with-chrono-0_4"] }
 futures = "0.3.12"
-bb8-postgres = "0.7.0"
-bb8 = "0.7.0"
+bb8-postgres = "0.8.1"
+bb8 = "0.8.0"
 serde = { version = "1.0.123", features = ["derive"] }
 toml = "0.5.8"
-clap = "2.33.3"
+clap = { version = "3.2.15", features = ["cargo"] }
 tracing = "0.1.23"
 tracing-subscriber = { version = "0.3.1", features = ["json", "env-filter"] }
 serde_json = "1.0.62"
-handlebars = "3.5.2"
-comrak = "0.9.1"
+handlebars = "4.3.3"
+comrak = "0.14.0"
 actix-web = "4.0.0-beta.15"
 postgres-types = { version = "0.2.0", features = ["derive"] }
 itertools = "0.10.0"
-tracing-actix-web = "0.5.0-beta.6"
+tracing-actix-web = "0.6.0"
 tera = "1.6.1"
-bcrypt = "0.9.0"
+bcrypt = "0.13.0"
 rand = "0.8.3"
 time = "0.3.5"
-urlencoding = "1.1.1"
+urlencoding = "2.1.0"
 url = "2.2.2"
 openidconnect = "2.1.0"
 oauth2 = "4.2.0"
-sentry = { version = "0.26.0", features = ["anyhow"] }
-sentry-tracing = "0.26.0"
+sentry = { version = "0.27.0", features = ["anyhow"] }
+sentry-tracing = "0.27.0"
 
 [profile.release]
 debug = true
