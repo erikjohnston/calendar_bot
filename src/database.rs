@@ -1553,7 +1553,7 @@ impl Database {
     ) -> Result<Vec<Calendar>, Error> {
         let calendars = self
             .get_calendars_with_filter(
-                "WHERE user_id = $1 AND token_id = $2",
+                "WHERE c.user_id = $1 AND token_id = $2",
                 &[&&user_id, &token_id],
             )
             .await?;
