@@ -30,7 +30,7 @@
                 <input type="text" name="name" placeholder="Calendar name" {% if calendar %}value="{{ calendar.name }}"{% endif %} /></p>
             <p>URL:
                 <input type="text" name="url" placeholder="https://caldav.example.com" {% if calendar %}value="{{ calendar.url }}"{% endif %}/></p>
-            {% if authentication_type == "basic" or not calendar %}
+            {% if not calendar or authentication_type | default(value='') == "basic" %}
             <p>User Name:
                 <input type="text" name="user_name" placeholder="User name" {% if calendar %}value="{{ user_name | default(value='') }}"{% endif %} /></p>
             <p>Password{% if calendar %} (leave blank to keep unchanged){% endif %}:
