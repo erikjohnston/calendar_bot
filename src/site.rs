@@ -608,9 +608,18 @@ async fn get_calendar_html(
         .await
         .map_err(ErrorInternalServerError)?;
 
+    let (user_name, authentication_type) = match calendar.as_ref().map(|c| &c.authentication) {
+        Some(CalendarAuthentication::Basic { user_name, .. }) => (Some(user_name), "basic"),
+        Some(CalendarAuthentication::Bearer { .. }) => (None, "bearer"),
+        Some(CalendarAuthentication::None) => (None, "none"),
+        None => (None, "none"),
+    };
+
     let context = json!({
         "calendar": calendar,
         "email": email,
+        "user_name": user_name,
+        "authentication_type": authentication_type,
     });
 
     let result = app

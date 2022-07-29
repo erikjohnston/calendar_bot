@@ -30,11 +30,12 @@
                 <input type="text" name="name" placeholder="Calendar name" {% if calendar %}value="{{ calendar.name }}"{% endif %} /></p>
             <p>URL:
                 <input type="text" name="url" placeholder="https://caldav.example.com" {% if calendar %}value="{{ calendar.url }}"{% endif %}/></p>
+            {% if authentication_type == "basic" or not calendar %}
             <p>User Name:
-                <input type="text" name="user_name" placeholder="User name" {% if calendar %}value="{{ calendar.user_name | default(value='') }}"{% endif %} /></p>
+                <input type="text" name="user_name" placeholder="User name" {% if calendar %}value="{{ user_name | default(value='') }}"{% endif %} /></p>
             <p>Password{% if calendar %} (leave blank to keep unchanged){% endif %}:
                 <input type="password" name="password" placeholder="Password"/></p>
-
+            {% endif %}
             {% if calendar %}
             <p>
                 <input type="submit" value="Update" formaction="/calendar/{{ calendar.calendar_id }}/edit" />
