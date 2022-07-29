@@ -22,12 +22,16 @@
         Name: {{ calendar.summary }}<br />
         Description: {{ calendar.description }}<br />
         ID: {{ calendar.id }}<br />
+        {% if calendar.have_added_to_calbot %}
+        (Already added)
+        {% else %}
         <form method="post">
             <input type="hidden" name="google_id" value="{{ calendar.id }}" />
             <input type="hidden" name="name" value="Google — {{ calendar.summary }}" />
             <input type="hidden" name="token_id" value="{{ token_id }}" />
             <input type="submit" value="Add" formaction="/calendar/new_oauth2" />
         </form>
+        {% endif %}
         </p>
         {% endfor %}
 

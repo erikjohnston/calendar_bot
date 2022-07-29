@@ -18,8 +18,8 @@ use serde_json::json;
 use tracing_actix_web::TracingLogger;
 use urlencoding::encode;
 
+use crate::auth::AuthedUser;
 use crate::database::Reminder;
-use crate::{auth::AuthedUser};
 use crate::{
     app::{is_likely_a_valid_user_id, App},
     database::CalendarAuthentication,

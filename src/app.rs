@@ -1,7 +1,7 @@
 //! The high level app.
 
 use std::{
-    collections::{BTreeMap, HashMap, VecDeque},
+    collections::{BTreeMap, BTreeSet, HashMap, VecDeque},
     error::Error as StdError,
     ops::Deref,
     sync::{Arc, Mutex},
@@ -129,6 +129,9 @@ pub struct GoogleCalendarListItem {
     pub description: String,
     #[serde(default)]
     pub primary: bool,
+
+    #[serde(default)]
+    pub have_added_to_calbot: bool,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -1021,8 +1024,24 @@ impl App {
 
         let mut calendars = body.items;
 
+        let existing_calendars = self
+            .database
+            .get_oauth2_calendars(user_id, token_id)
+            .await?;
+
+        let urls_have_added: BTreeSet<_> = existing_calendars.into_iter().map(|c| c.url).collect();
+
         // Sort the calendars so the primary one is first.
         calendars.sort_by_key(|c| !c.primary);
+
+        for calendar in &mut calendars {
+            let url = format!(
+                "https://apidata.googleusercontent.com/caldav/v2/{}/events",
+                encode(&calendar.id)
+            );
+
+            calendar.have_added_to_calbot = urls_have_added.contains(&url);
+        }
 
         Ok((token_id, calendars))
     }

@@ -1545,4 +1545,18 @@ impl Database {
             Ok(OAuth2Result::None)
         }
     }
+
+    pub async fn get_oauth2_calendars(
+        &self,
+        user_id: i64,
+        token_id: i64,
+    ) -> Result<Vec<Calendar>, Error> {
+        let calendars = self
+            .get_calendars_with_filter(
+                "WHERE user_id = $1 AND token_id = $2",
+                &[&&user_id, &token_id],
+            )
+            .await?;
+        Ok(calendars)
+    }
 }
