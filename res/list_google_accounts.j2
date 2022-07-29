@@ -1,0 +1,34 @@
+<html>
+<title>Calendar Reminders</title>
+<meta charset="utf-8">
+<style>
+    {% include "base.css" %}
+</style>
+
+<script>
+{% include "base.js" %}
+
+</script>
+
+<body>
+    {% include "sidebar.html.j2" %}
+
+    <div id="content">
+
+        <h1>Google Accounts</h1>
+
+        <p>
+        <a href="/add_google_account">Add new account</a>
+        </p>
+
+        {% for account in accounts %}
+        <p>
+        Token ID: {{ account.token_id }}<br />
+        <a href="/google_calendars?token_id={{ account.token_id }}">Calendars</a>
+        </p>
+        {% endfor %}
+
+    </div>
+</body>
+
+</html>

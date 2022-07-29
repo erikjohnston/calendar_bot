@@ -136,14 +136,6 @@ struct GoogleCalendarListResponse {
     items: Vec<GoogleCalendarListItem>,
 }
 
-/// A result for functions that interact with OAuth2 resources, which can either
-/// result in a success or need to redirect the user somewhere.
-#[derive(Clone, Debug)]
-pub enum TryAuthenticatedAPI<T> {
-    Success(T),
-    Redirect(Url),
-}
-
 impl Reminders {
     /// Get how long until the next reminder needs to be sent.
     fn get_time_to_next(&self) -> Option<Duration> {
@@ -964,14 +956,17 @@ impl App {
 
     pub async fn get_google_calendars(
         &self,
-        path: &str,
+        _path: &str,
         user_id: i64,
-    ) -> Result<TryAuthenticatedAPI<(i64, Vec<GoogleCalendarListItem>)>, Error> {
-        let (token_id, access_token) = match self.database.get_oauth2_access_token(user_id).await? {
+        token_id: i64,
+    ) -> Result<(i64, Vec<GoogleCalendarListItem>), Error> {
+        let (token_id, access_token) = match self
+            .database
+            .get_oauth2_access_token(user_id, token_id)
+            .await?
+        {
             OAuth2Result::None => {
-                let redirect_url = self.start_google_oauth_session(user_id, path).await?;
-
-                return Ok(TryAuthenticatedAPI::Redirect(redirect_url));
+                bail!("Invalid token")
             }
             OAuth2Result::RefreshToken {
                 refresh_token,
@@ -1018,12 +1013,6 @@ impl App {
             .send()
             .await?;
 
-        if response.status().as_u16() == 401 {
-            let redirect_url = self.start_google_oauth_session(user_id, path).await?;
-
-            return Ok(TryAuthenticatedAPI::Redirect(redirect_url));
-        }
-
         if !response.status().is_success() {
             bail!("Failed to talk to server.")
         }
@@ -1035,7 +1024,7 @@ impl App {
         // Sort the calendars so the primary one is first.
         calendars.sort_by_key(|c| !c.primary);
 
-        Ok(TryAuthenticatedAPI::Success((token_id, calendars)))
+        Ok((token_id, calendars))
     }
 
     /// Start an OAuth2 session, returning the URL to redirect the client to.

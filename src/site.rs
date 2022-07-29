@@ -19,7 +19,7 @@ use tracing_actix_web::TracingLogger;
 use urlencoding::encode;
 
 use crate::database::Reminder;
-use crate::{app::TryAuthenticatedAPI, auth::AuthedUser};
+use crate::{auth::AuthedUser};
 use crate::{
     app::{is_likely_a_valid_user_id, App},
     database::CalendarAuthentication,
@@ -1044,24 +1044,71 @@ async fn change_matrix_id_html(
     Ok(response)
 }
 
-/// Change Matrix ID page
+/// Connect a new google account
+#[get("/add_google_account")]
+async fn add_google_account(
+    app: Data<App>,
+    user: AuthedUser,
+) -> Result<impl Responder, actix_web::Error> {
+    let redirect_url = app
+        .start_google_oauth_session(user.0, "/google_accounts")
+        .await
+        .map_err(ErrorInternalServerError)?;
+
+    Ok(HttpResponse::SeeOther()
+        .insert_header(("Location", redirect_url.to_string()))
+        .finish())
+}
+
+/// List google accounts
+#[get("/google_accounts")]
+async fn list_google_accounts(
+    app: Data<App>,
+    user: AuthedUser,
+) -> Result<impl Responder, actix_web::Error> {
+    let token_ids = app
+        .database
+        .get_oauth2_accounts(user.0)
+        .await
+        .map_err(ErrorInternalServerError)?;
+
+    let context = json!({
+        "accounts": token_ids.into_iter().map(|i| json!({
+            "token_id": i
+        })).collect::<Vec<_>>(),
+    });
+
+    let result = app
+        .templates
+        .render(
+            "list_google_accounts.html.j2",
+            &tera::Context::from_serialize(&context).map_err(ErrorInternalServerError)?,
+        )
+        .map_err(ErrorInternalServerError)?;
+
+    let mut builder = HttpResponse::Ok();
+    builder.insert_header(("Content-Type", "text/html; charset=utf-8"));
+    let response = builder.body(result);
+
+    Ok(response)
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct TokenId {
+    token_id: i64,
+}
+
+/// Get google calendars
 #[get("/google_calendars")]
 async fn google_calendars(
     app: Data<App>,
     user: AuthedUser,
+    query: Query<TokenId>,
 ) -> Result<impl Responder, actix_web::Error> {
-    let (token_id, calendars) = match app
-        .get_google_calendars("/google_calendars", user.0)
+    let (token_id, calendars) = app
+        .get_google_calendars("/google_calendars", user.0, query.token_id)
         .await
-        .map_err(ErrorInternalServerError)?
-    {
-        TryAuthenticatedAPI::Success(calendars) => calendars,
-        TryAuthenticatedAPI::Redirect(url) => {
-            return Ok(HttpResponse::SeeOther()
-                .insert_header(("Location", url.to_string()))
-                .finish())
-        }
-    };
+        .map_err(ErrorInternalServerError)?;
 
     let email = app
         .database
@@ -1238,6 +1285,8 @@ pub async fn run_server(app: App) -> Result<(), Error> {
             .service(sso_auth)
             .service(oauth2_callback)
             .service(google_calendars)
+            .service(add_google_account)
+            .service(list_google_accounts)
     })
     .bind(&bind_addr)?
     .run()

@@ -1482,7 +1482,35 @@ impl Database {
         }
     }
 
-    pub async fn get_oauth2_access_token(&self, user_id: i64) -> Result<OAuth2Result, Error> {
+    pub async fn get_oauth2_accounts(&self, user_id: i64) -> Result<Vec<i64>, Error> {
+        let db_conn = self.db_pool.get().await?;
+
+        let rows = db_conn
+            .query(
+                r#"
+                SELECT token_id
+                FROM oauth2_tokens
+                WHERE user_id = $1
+            "#,
+                &[&user_id],
+            )
+            .await?;
+
+        let mut accounts = Vec::with_capacity(rows.len());
+
+        for row in rows {
+            let token_id: i64 = row.try_get("token_id")?;
+            accounts.push(token_id);
+        }
+
+        Ok(accounts)
+    }
+
+    pub async fn get_oauth2_access_token(
+        &self,
+        user_id: i64,
+        token_id: i64,
+    ) -> Result<OAuth2Result, Error> {
         let db_conn = self.db_pool.get().await?;
 
         let ret = db_conn
@@ -1490,9 +1518,9 @@ impl Database {
                 r#"
                 SELECT token_id, access_token, refresh_token, expiry
                 FROM oauth2_tokens
-                WHERE user_id = $1
+                WHERE user_id = $1 AND token_id = $2
             "#,
-                &[&user_id],
+                &[&user_id, &token_id],
             )
             .await?;
 
