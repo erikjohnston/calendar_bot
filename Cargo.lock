@@ -921,9 +921,9 @@ dependencies = [
 
 [[package]]
 name = "generic-array"
-version = "0.14.5"
+version = "0.14.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fd48d33ec7f05fbfa152300fdad764757cbded343c1aa1cff2fbaf4134851803"
+checksum = "bff49e947297f3312447abdca79f45f4738097cc82b06e72054d2223f601f1b9"
 dependencies = [
  "typenum",
  "version_check",
@@ -1139,7 +1139,7 @@ dependencies = [
 [[package]]
 name = "ics_parser"
 version = "0.1.0"
-source = "git+https://github.com/erikjohnston/ics_parser?branch=main#d782e67ad800c3fecada87d5411a7f87626af394"
+source = "git+https://github.com/erikjohnston/ics_parser?branch=main#8a95aa47d3393743e0ad1d797f812a13c6a5e4f1"
 dependencies = [
  "anyhow",
  "base64 0.12.3",
@@ -2046,9 +2046,9 @@ dependencies = [
 
 [[package]]
 name = "rustls-pemfile"
-version = "1.0.0"
+version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e7522c9de787ff061458fe9a829dc790a3f5b22dc571694fc5883f448b94d9a9"
+checksum = "0864aeff53f8c05aa08d86e5ef839d3dfcf07aeba2db32f12db0ef716e87bd55"
 dependencies = [
  "base64 0.13.0",
 ]

@@ -106,7 +106,7 @@ pub async fn fetch_calendars(
                 capture_anyhow(&e);
                 error!(
                     error = e.deref() as &dyn std::error::Error,
-                    "Failed to parse event"
+                    "Failed to parse calendar"
                 )
             }
         }
