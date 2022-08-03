@@ -333,6 +333,8 @@ impl App {
             events_by_id.insert(&event.event_id, event);
         }
 
+        let mut new_reminders = Vec::new();
+
         for (previous_event, _) in &previous_events {
             // Figure out if we should attempt to deduplicated based on this
             // event. We're either expecting it to not appear in the calendar or
@@ -410,7 +412,7 @@ impl App {
                     reminder.reminder_id = -1;
                     reminder.event_id = new_event.event_id.clone();
 
-                    self.database.add_reminder(reminder).await?;
+                    new_reminders.push(reminder);
                 }
             }
         }
@@ -418,6 +420,10 @@ impl App {
         self.database
             .insert_events(db_calendar.calendar_id, events, next_dates)
             .await?;
+
+        for reminder in new_reminders {
+            self.database.add_reminder(reminder).await?;
+        }
 
         self.update_reminders().await?;
 
