@@ -4,6 +4,7 @@ use std::{
     collections::{BTreeMap, BTreeSet, HashMap, VecDeque},
     error::Error as StdError,
     ops::Deref,
+    panic::AssertUnwindSafe,
     sync::{Arc, Mutex},
 };
 
@@ -18,7 +19,7 @@ use crate::{database::Calendar, DEFAULT_TEMPLATE};
 use anyhow::{bail, Context, Error};
 use chrono::{DateTime, Duration, NaiveDate, Utc};
 use comrak::{markdown_to_html, ComrakOptions};
-use futures::future;
+use futures::{future, Future, FutureExt};
 use handlebars::Handlebars;
 use ics_parser::property::EndCondition;
 use itertools::Itertools;
@@ -456,37 +457,19 @@ impl App {
     /// An infinite loop that periodically triggers fetching updates for all
     /// calendars.
     async fn update_calendar_loop(&self) {
-        let mut interval = interval(Duration::minutes(5).to_std().expect("std duration"));
-
-        loop {
-            interval.tick().await;
-
-            if let Err(error) = self.update_calendars().await {
-                capture_anyhow(&error);
-                error!(
-                    error = error.deref() as &dyn StdError,
-                    "Failed to update calendars"
-                );
-            }
-        }
+        interval_process("update_calendar", Duration::minutes(5), || {
+            AssertUnwindSafe(self.update_calendars())
+        })
+        .await;
     }
 
     /// An infinite loop that periodically pulls changes to email to Matrix ID
     /// mappings from the DB.
     async fn update_mappings_loop(&self) {
-        let mut interval = interval(Duration::minutes(5).to_std().expect("std duration"));
-
-        loop {
-            interval.tick().await;
-
-            if let Err(error) = self.update_mappings().await {
-                capture_anyhow(&error);
-                error!(
-                    error = error.deref() as &dyn StdError,
-                    "Failed to update mappings"
-                );
-            }
-        }
+        interval_process("update_mappings", Duration::minutes(5), || {
+            AssertUnwindSafe(self.update_mappings())
+        })
+        .await;
     }
 
     /// Loop that handle sending the reminders.
@@ -664,27 +647,27 @@ impl App {
             return;
         };
 
-        let mut interval = interval(Duration::minutes(5).to_std().expect("std duration"));
+        interval_process("hibob_loop", Duration::minutes(5), || {
+            AssertUnwindSafe(async {
+                if let Err(error) = self.update_email_mappings(config).await {
+                    capture_anyhow(&error);
+                    error!(
+                        error = error.deref() as &dyn StdError,
+                        "Failed to update email mappings"
+                    );
+                }
 
-        loop {
-            interval.tick().await;
-
-            if let Err(error) = self.update_email_mappings(config).await {
-                capture_anyhow(&error);
-                error!(
-                    error = error.deref() as &dyn StdError,
-                    "Failed to update email mappings"
-                );
-            }
-
-            if let Err(error) = self.update_holidays(config).await {
-                capture_anyhow(&error);
-                error!(
-                    error = error.deref() as &dyn StdError,
-                    "Failed to update holidays"
-                );
-            }
-        }
+                if let Err(error) = self.update_holidays(config).await {
+                    capture_anyhow(&error);
+                    error!(
+                        error = error.deref() as &dyn StdError,
+                        "Failed to update holidays"
+                    );
+                }
+                Ok(())
+            })
+        })
+        .await;
     }
 
     /// An infinite loop that checks for any oauth2 tokens that need refreshing
@@ -1172,4 +1155,31 @@ pub(crate) fn is_likely_a_valid_user_id(user_id: &str) -> bool {
     }
 
     true
+}
+
+async fn interval_process<F, Fut>(name: &str, duration: Duration, func: F)
+where
+    F: Fn() -> Fut,
+    Fut: Future<Output = Result<(), Error>> + std::panic::UnwindSafe,
+{
+    let mut interval = interval(duration.to_std().expect("std duration"));
+
+    loop {
+        interval.tick().await;
+
+        match func().catch_unwind().await {
+            Ok(Ok(())) => {}
+            Ok(Err(error)) => {
+                capture_anyhow(&error);
+                error!(
+                    error = error.deref() as &dyn StdError,
+                    name, "Background loop failed"
+                );
+            }
+            Err(err) => {
+                error!(name, "Background loop panicked: {err:?}");
+                continue;
+            }
+        }
+    }
 }
