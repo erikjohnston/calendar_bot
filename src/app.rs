@@ -586,20 +586,34 @@ impl App {
             })
             .join(", ");
 
+        // The description may be in HTML so we first render the template with a
+        // unique token that we can later replace with the actual description
+        let description_token: String = rand::thread_rng()
+            .sample_iter(Alphanumeric)
+            .take(16)
+            .map(char::from)
+            .collect();
+
+        let cleaned_description = reminder.description.as_deref().map(ammonia::clean);
+
         let handlebars = Handlebars::new();
-        let markdown = handlebars
+        let mut markdown = handlebars
             .render_template(
                 markdown_template,
                 &json!({
                     "event_id": &reminder.event_id,
                     "summary": &reminder.summary,
-                    "description": &reminder.description,
+                    "description": cleaned_description.as_ref().map(|_| &description_token),
                     "location": &reminder.location,
                     "minutes_before": &reminder.minutes_before,
                     "attendees": attendees,
                 }),
             )
             .with_context(|| "Rendering body template")?;
+
+        if let Some(desc) = cleaned_description {
+            markdown = markdown.replace(&description_token, &desc);
+        };
 
         let event_json = json!({
             "msgtype": "m.text",
