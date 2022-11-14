@@ -594,16 +594,14 @@ impl App {
             .map(char::from)
             .collect();
 
-        let cleaned_description = reminder.description.as_deref().map(ammonia::clean);
-
         let handlebars = Handlebars::new();
-        let mut markdown = handlebars
+        let markdown = handlebars
             .render_template(
                 markdown_template,
                 &json!({
                     "event_id": &reminder.event_id,
                     "summary": &reminder.summary,
-                    "description": cleaned_description.as_ref().map(|_| &description_token),
+                    "description": reminder.description.as_ref().map(|_| &description_token),
                     "location": &reminder.location,
                     "minutes_before": &reminder.minutes_before,
                     "attendees": attendees,
@@ -611,16 +609,23 @@ impl App {
             )
             .with_context(|| "Rendering body template")?;
 
-        if let Some(desc) = cleaned_description {
-            markdown = markdown.replace(&description_token, &desc);
-        };
+        let event_json = if let Some(desc) = &reminder.description {
+            let cleaned_html = ammonia::clean(&desc);
 
-        let event_json = json!({
-            "msgtype": "m.text",
-            "body": markdown,
-            "format": "org.matrix.custom.html",
-            "formatted_body": markdown_to_html(&markdown, &ComrakOptions::default()),
-        });
+            json!({
+                "msgtype": "m.text",
+                "body": markdown.replace(&description_token, &desc),
+                "format": "org.matrix.custom.html",
+                "formatted_body": markdown_to_html(&markdown, &ComrakOptions::default()).replace(&description_token, &cleaned_html),
+            })
+        } else {
+            json!({
+                "msgtype": "m.text",
+                "body": markdown,
+                "format": "org.matrix.custom.html",
+                "formatted_body": markdown_to_html(&markdown, &ComrakOptions::default()),
+            })
+        };
 
         let url = format!(
             "{}/_matrix/client/r0/rooms/{}/send/m.room.message",
