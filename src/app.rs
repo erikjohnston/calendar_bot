@@ -95,7 +95,9 @@ struct HiBobOutResponseField {
     employee_id: String,
     start_date: NaiveDate,
     end_date: NaiveDate,
+    #[serde(alias = "startDatePortion")]
     start_portion: String,
+    #[serde(alias = "endDatePortion")]
     end_portion: String,
 }
 
