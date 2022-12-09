@@ -426,6 +426,11 @@ impl App {
 
         for reminder in new_reminders {
             self.database.add_reminder(reminder).await?;
+
+            // We delete the old reminder so we don't port it again.
+            self.database
+                .delete_reminder_in_calendar(reminder.calendar_id, reminder.reminder_id)
+                .await?;
         }
 
         self.update_reminders().await?;
