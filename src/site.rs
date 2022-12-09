@@ -558,7 +558,7 @@ async fn upsert_reminder_html(
         assert_user_owns_calendar(&app, user, calendar_id).await?;
 
         app.database
-            .add_reminder(Reminder {
+            .add_reminder(&Reminder {
                 reminder_id: -1, // We're inserting so we use a fake ID
                 user_id: *user,
                 calendar_id,

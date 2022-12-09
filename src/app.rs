@@ -425,7 +425,7 @@ impl App {
             .await?;
 
         for reminder in new_reminders {
-            self.database.add_reminder(reminder).await?;
+            self.database.add_reminder(&reminder).await?;
 
             // We delete the old reminder so we don't port it again.
             self.database

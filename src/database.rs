@@ -477,7 +477,7 @@ impl Database {
     }
 
     /// Persist a new reminder.
-    pub async fn add_reminder(&self, reminder: Reminder) -> Result<(), Error> {
+    pub async fn add_reminder(&self, reminder: &Reminder) -> Result<(), Error> {
         let db_conn = self.db_pool.get().await?;
 
         db_conn
