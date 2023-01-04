@@ -699,46 +699,46 @@ impl App {
     /// An infinite loop that checks for any oauth2 tokens that need refreshing
     async fn refresh_oauth2_tokens(&self) {
         loop {
-            match self.refresh_oauth2_tokens_iter().await {
-                Ok(duration) => {
-                    sleep(
-                        duration
-                            .to_std()
-                            .unwrap_or_else(|_| std::time::Duration::from_secs(60)),
-                    )
-                    .await;
-                }
-                Err(err) => {
-                    capture_anyhow(&err);
-                    error!(
-                        error = ?err.deref() as &dyn StdError,
-                        "Failed to refresh oauth2 token"
-                    );
-                    sleep(std::time::Duration::from_secs(60)).await
-                }
-            };
+            let to_refresh = self
+                .database
+                .get_oauth2_access_tokens_needing_refresh()
+                .await?;
+
+            for (token_id, refresh_token, expiry) in to_refresh {
+                match self
+                    .refresh_oauth2_tokens_iter(token_id, refresh_token, expiry)
+                    .await
+                {
+                    Ok() => {}
+                    Err(err) => {
+                        capture_anyhow(&err);
+                        error!(
+                            error = ?err.deref() as &dyn StdError,
+                            "Failed to refresh oauth2 token"
+                        );
+                        sleep(std::time::Duration::from_secs(60)).await
+                    }
+                };
+            }
+
+            // Wait 5 minutes before refreshing again
+            sleep(
+                duration
+                    .to_std()
+                    .unwrap_or_else(|_| std::time::Duration::from_secs(5 * 60)),
+            )
+            .await;
         }
     }
 
     /// Check if there is an oauth2 token that needs refreshing
     #[instrument(skip(self))]
-    async fn refresh_oauth2_tokens_iter(&self) -> Result<Duration, Error> {
-        let (token_id, refresh_token, expiry) = if let Some(row) = self
-            .database
-            .get_next_oauth2_access_token_needing_refresh()
-            .await?
-        {
-            row
-        } else {
-            // No oauth2 tokens, so we wait five minutes before checking again.
-            return Ok(Duration::minutes(5));
-        };
-
-        if expiry > Utc::now() {
-            // Sleep until the expiry, waking up at most in five minutes
-            return Ok((expiry - Utc::now()).min(Duration::minutes(5)));
-        }
-
+    async fn refresh_oauth2_tokens_iter(
+        &self,
+        token_id: i64,
+        refresh_token: String,
+        expiry: DateTime<Utc>,
+    ) -> Result<(), Error> {
         info!(token_id, "Refreshing google OAuth2 token");
 
         let client = self
@@ -761,7 +761,7 @@ impl App {
             .update_google_oauth_token(token_id, token_result.access_token().secret(), expiry)
             .await?;
 
-        Ok(Duration::seconds(0))
+        Ok(())
     }
 
     /// Fetch who is on holiday today.

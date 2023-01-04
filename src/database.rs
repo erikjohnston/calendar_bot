@@ -1453,33 +1453,35 @@ impl Database {
     }
 
     /// Get the next OAuth2 token used for calendars that needs refreshing soon.
-    pub async fn get_next_oauth2_access_token_needing_refresh(
+    pub async fn get_oauth2_access_tokens_needing_refresh(
         &self,
-    ) -> Result<Option<(i64, String, DateTime<Utc>)>, Error> {
+    ) -> Result<Vec<(i64, String, DateTime<Utc>)>, Error> {
         let db_conn = self.db_pool.get().await?;
 
         let ret = db_conn
-            .query_opt(
+            .query(
                 r#"
                 SELECT token_id, refresh_token, expiry
                 FROM oauth2_tokens
                 INNER JOIN calendar_oauth2 USING (token_id)
+                WHERE expiry <= $1
                 ORDER BY expiry
-                LIMIT 1
             "#,
-                &[],
+                &[&Utc::now()],
             )
             .await?;
 
-        if let Some(row) = ret {
+        let mut results = Vec::new();
+
+        for row in ret {
             let token_id = row.try_get("token_id")?;
             let refresh_token = row.try_get("refresh_token")?;
             let expiry = row.try_get("expiry")?;
 
-            Ok(Some((token_id, refresh_token, expiry)))
-        } else {
-            Ok(None)
+            results.push((token_id, refresh_token, expiry))
         }
+
+        Ok(results)
     }
 
     pub async fn get_oauth2_accounts(&self, user_id: i64) -> Result<Vec<i64>, Error> {
