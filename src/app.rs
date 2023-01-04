@@ -699,17 +699,26 @@ impl App {
     /// An infinite loop that checks for any oauth2 tokens that need refreshing
     async fn refresh_oauth2_tokens(&self) {
         loop {
-            let to_refresh = self
+            let to_refresh = match self
                 .database
                 .get_oauth2_access_tokens_needing_refresh()
-                .await?;
+                .await
+            {
+                Ok(t) => t,
+                Err(err) => {
+                    error!(error = ?err.deref() as &dyn StdError, "Failed to get refresh tokens from DB");
+                    capture_anyhow(&err);
+                    sleep(std::time::Duration::from_secs(5 * 60)).await;
+                    continue;
+                }
+            };
 
             for (token_id, refresh_token, expiry) in to_refresh {
                 match self
                     .refresh_oauth2_tokens_iter(token_id, refresh_token, expiry)
                     .await
                 {
-                    Ok() => {}
+                    Ok(()) => {}
                     Err(err) => {
                         capture_anyhow(&err);
                         error!(
@@ -722,12 +731,7 @@ impl App {
             }
 
             // Wait 5 minutes before refreshing again
-            sleep(
-                duration
-                    .to_std()
-                    .unwrap_or_else(|_| std::time::Duration::from_secs(5 * 60)),
-            )
-            .await;
+            sleep(std::time::Duration::from_secs(5 * 60)).await;
         }
     }
 
