@@ -711,7 +711,7 @@ impl App {
                 Err(err) => {
                     capture_anyhow(&err);
                     error!(
-                        error = err.deref() as &dyn StdError,
+                        error = ?err.deref() as &dyn StdError,
                         "Failed to refresh oauth2 token"
                     );
                     sleep(std::time::Duration::from_secs(60)).await
