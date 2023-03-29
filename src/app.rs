@@ -412,7 +412,6 @@ impl App {
                 );
 
                 for mut reminder in reminders {
-                    reminder.reminder_id = -1;
                     reminder.event_id = new_event.event_id.clone();
 
                     new_reminders.push(reminder);
