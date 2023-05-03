@@ -38,6 +38,7 @@ oauth2 = "4.2.0"
 sentry = { version = "0.27.0", features = ["anyhow"] }
 sentry-tracing = "0.27.0"
 ammonia = "3.2.1"
+chrono-humanize = "0.2.2"
 
 [profile.release]
 debug = true

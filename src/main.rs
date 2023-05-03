@@ -30,7 +30,7 @@ use tracing_subscriber::util::SubscriberInitExt;
 
 /// Default markdown template used for generating reminder events.
 const DEFAULT_TEMPLATE: &str = r#"
-**{{ summary }}** {{#if (gt minutes_before 0) }}starts in {{ minutes_before }} minutes {{/if}}{{#if location}}at {{ location }} {{/if}}{{#if attendees}} ─ {{ attendees }}{{/if}}{{#if description}}
+**{{ summary }}** {{#if (gt minutes_before 0) }}starts in {{ duration }} {{/if}}{{#if location}}at {{ location }} {{/if}}{{#if attendees}} ─ {{ attendees }}{{/if}}{{#if description}}
 
 **Description:** {{ description }}
 {{/if}}
