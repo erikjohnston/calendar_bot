@@ -18,6 +18,7 @@ use crate::{database::Calendar, DEFAULT_TEMPLATE};
 
 use anyhow::{bail, Context, Error};
 use chrono::{DateTime, Duration, NaiveDate, Utc};
+use chrono_humanize::{Accuracy, HumanTime, Tense};
 use comrak::{markdown_to_html, ComrakOptions};
 use futures::{future, Future, FutureExt};
 use handlebars::Handlebars;
@@ -601,6 +602,7 @@ impl App {
             .collect();
 
         let handlebars = Handlebars::new();
+        let human = HumanTime::from(Duration::minutes(reminder.minutes_before));
         let markdown = handlebars
             .render_template(
                 markdown_template,
@@ -610,6 +612,7 @@ impl App {
                     "description": reminder.description.as_ref().map(|_| &description_token),
                     "location": &reminder.location,
                     "minutes_before": &reminder.minutes_before,
+                    "duration": human.to_text_en(Accuracy::Precise, Tense::Present),
                     "attendees": attendees,
                 }),
             )
