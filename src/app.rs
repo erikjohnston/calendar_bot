@@ -159,7 +159,7 @@ impl Reminders {
         let now = Utc::now();
 
         while let Some((date, reminder)) = reminders.pop_front() {
-            info!(date = ?date, now = ?now, "Checking reminder");
+            info!(date = ?date, now = ?now, event_id = reminder.event_id, "Checking reminder");
             if date <= now {
                 due_reminders.push(reminder);
             } else {

@@ -121,7 +121,7 @@ pub fn parse_calendars_to_events(
     calendars: &[VCalendar],
 ) -> Result<(Vec<Event>, Vec<EventInstance>), Error> {
     let now = Utc::now();
-    let mut events = Vec::new();
+    let mut events: Vec<Event> = Vec::new();
     let mut next_dates = Vec::new();
     for calendar in calendars {
         for (uid, event) in &calendar.events {
@@ -150,7 +150,7 @@ pub fn parse_calendars_to_events(
             // generate `EventInstance` for them.
             for (date, recur_event) in event
                 .recur_iter(calendar)?
-                .skip_while(|(d, _)| *d < now)
+                .skip_while(|(d, _)| *d < now - Duration::days(7))
                 .take_while(|(d, _)| *d < now + Duration::days(30))
             {
                 // Loop over all the properties to pull out the attendee info.

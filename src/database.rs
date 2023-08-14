@@ -8,7 +8,7 @@ use chrono::{DateTime, Duration, FixedOffset, Utc};
 use postgres_types::{FromSql, ToSql};
 use serde::{Deserialize, Serialize};
 use tokio_postgres::NoTls;
-use tracing::debug;
+use tracing::info;
 
 /// Async database pool for PostgreSQL.
 pub type PostgresPool = bb8::Pool<bb8_postgres::PostgresConnectionManager<NoTls>>;
@@ -572,7 +572,8 @@ impl Database {
                     FROM reminders
                     INNER JOIN events USING (calendar_id, event_id)
                     INNER JOIN next_dates AS i USING (calendar_id, event_id)
-                    ORDER BY timestamp
+                    WHERE timestamp > now() - '5 minutes'
+                    ORDER BY timestamp - make_interval(mins => minutes_before::int)
                 "#,
                 &[],
             )
@@ -596,7 +597,7 @@ impl Database {
             if reminder_time < now {
                 // XXX: There's technically a race here if we reload the
                 // reminders just as we're about to send out a reminder.
-                debug!(now = ?now, reminder_time =?reminder_time, event_id = event_id.deref(), "Ignoring reminder");
+                info!(now = ?now, reminder_time =?reminder_time, event_id = event_id.deref(), "Ignoring old reminder");
                 continue;
             }
 
