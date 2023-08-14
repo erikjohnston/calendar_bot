@@ -572,7 +572,7 @@ impl Database {
                     FROM reminders
                     INNER JOIN events USING (calendar_id, event_id)
                     INNER JOIN next_dates AS i USING (calendar_id, event_id)
-                    WHERE timestamp > now() - '5 minutes'
+                    WHERE timestamp > now() + '-5 minutes'
                     ORDER BY timestamp - make_interval(mins => minutes_before::int)
                 "#,
                 &[],
