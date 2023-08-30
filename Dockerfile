@@ -1,4 +1,4 @@
-FROM lukemathwalker/cargo-chef:latest AS chef
+FROM lukemathwalker/cargo-chef:latest-rust-slim-bookworm AS chef
 
 WORKDIR /app
 
@@ -14,7 +14,7 @@ RUN cargo chef cook --release --recipe-path recipe.json
 COPY . .
 RUN cargo build --release
 
-FROM debian:buster-slim
+FROM debian:bookworm-slim
 RUN apt-get update && apt-get install -y ca-certificates openssl && rm -rf /var/lib/apt/lists/*
 COPY --from=builder /app/target/release/calendar_bot /usr/local/bin
 
