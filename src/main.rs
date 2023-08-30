@@ -9,7 +9,7 @@ use std::{fs, path::Path};
 use anyhow::{Context, Error};
 use bb8_postgres::tokio_postgres::NoTls;
 
-use clap::{value_t_or_exit, Arg, ArgMatches, SubCommand};
+use clap::{Arg, ArgMatches, Command};
 
 use config::Config;
 
@@ -47,26 +47,26 @@ async fn main() -> Result<(), Error> {
 
     let matches = clap::command!()
         .arg(
-            Arg::with_name("config")
+            Arg::new("config")
                 .short('c')
                 .long("config")
                 .value_name("FILE")
                 .help("The path to the config file")
-                .takes_value(true)
+                .num_args(1)
                 .default_value("config.toml"),
         )
         .subcommand(
-            SubCommand::with_name("create-user")
-                .arg(Arg::with_name("username").required(true))
-                .arg(Arg::with_name("password").required(true)),
+            Command::new("create-user")
+                .arg(Arg::new("username").required(true))
+                .arg(Arg::new("password").required(true)),
         )
         .get_matches();
 
-    let config_file = value_t_or_exit!(matches, "config", String);
+    let config_file = matches.get_one::<String>("config").unwrap();
+    let config_bytes = fs::read(config_file).with_context(|| "Reading config file")?;
+    let config_str = String::from_utf8(config_bytes).with_context(|| "Parsing config file")?;
 
-    let config: Config =
-        toml::from_slice(&fs::read(&config_file).with_context(|| "Reading config file")?)
-            .with_context(|| "Parsing config file")?;
+    let config: Config = toml::from_str(&config_str).with_context(|| "Parsing config file")?;
 
     let _guard = if let Some(sentry_config) = &config.sentry {
         let guard = sentry::init((
@@ -99,8 +99,8 @@ async fn create_database(config: &Config) -> Result<Database, Error> {
 
 async fn create_user(config: Config, args: &ArgMatches) -> Result<(), Error> {
     let database = create_database(&config).await?;
-    let username = args.value_of("username").unwrap();
-    let password = args.value_of("password").unwrap();
+    let username = args.get_one::<String>("username").unwrap();
+    let password = args.get_one::<String>("password").unwrap();
     let user_id = database.upsert_account(username).await?;
     database.change_password(user_id, password).await?;
     Ok(())
