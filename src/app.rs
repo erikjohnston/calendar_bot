@@ -310,12 +310,7 @@ impl App {
         let mut vevents_by_id = HashMap::new();
         for calendar in &calendars {
             vevents_by_id.extend(&calendar.events);
-            vcalendar_by_id.extend(
-                calendar
-                    .events
-                    .iter()
-                    .map(|(event_id, _)| (event_id, calendar)),
-            );
+            vcalendar_by_id.extend(calendar.events.keys().map(|event_id| (event_id, calendar)));
         }
 
         let (events, next_dates) = parse_calendars_to_events(db_calendar.calendar_id, &calendars)?;
@@ -353,8 +348,8 @@ impl App {
             if let Some(existing_event) = vevents_by_id.get(&previous_event.event_id) {
                 // Only port reminders if the existing event doesn't have any upcoming instances.
                 let calendar = vcalendar_by_id[&previous_event.event_id];
-                if let Ok(iter) = existing_event.recur_iter(calendar) {
-                    if iter.skip_while(|(d, _)| *d < Utc::now()).next().is_none() {
+                if let Ok(mut iter) = existing_event.recur_iter(calendar) {
+                    if iter.any(|(d, _)| d >= Utc::now()) {
                         continue;
                     }
                 }
@@ -639,11 +634,11 @@ impl App {
             .with_context(|| "Rendering body template")?;
 
         let event_json = if let Some(desc) = &reminder.description {
-            let cleaned_html = ammonia::clean(&desc);
+            let cleaned_html = ammonia::clean(desc);
 
             json!({
                 "msgtype": "m.text",
-                "body": markdown.replace(&description_token, &desc),
+                "body": markdown.replace(&description_token, desc),
                 "format": "org.matrix.custom.html",
                 "formatted_body": markdown_to_html(&markdown, &ComrakOptions::default()).replace(&description_token, &cleaned_html),
             })
@@ -670,7 +665,7 @@ impl App {
             .await
             .with_context(|| "Sending HTTP send message request")?;
 
-        Span::current().record("status", &resp.status().as_u16());
+        Span::current().record("status", resp.status().as_u16());
 
         info!(
             status = resp.status().as_u16(),
@@ -793,7 +788,7 @@ impl App {
     /// Fetch who is on holiday today.
     #[instrument(skip(self, config), fields(status))]
     async fn update_holidays(&self, config: &HiBobConfig) -> Result<(), Error> {
-        let today = Utc::today().format("%Y-%m-%d").to_string();
+        let today = Utc::now().format("%Y-%m-%d").to_string();
 
         let resp = self
             .http_client
@@ -805,7 +800,7 @@ impl App {
             .await
             .with_context(|| "Sending HTTP /join request")?;
 
-        Span::current().record("status", &resp.status().as_u16());
+        Span::current().record("status", resp.status().as_u16());
 
         info!(status = resp.status().as_u16(), "Got holidays response");
 
@@ -819,7 +814,7 @@ impl App {
         let parsed_response: HiBobOutResponse = resp.json().await?;
 
         let mut people_out = Vec::new();
-        let today = Utc::today().naive_utc();
+        let today = Utc::now().date_naive();
 
         for field in parsed_response.outs {
             if (field.start_date == today && field.start_portion != "all_day")
@@ -862,7 +857,7 @@ impl App {
             .await
             .with_context(|| "Sending HTTP /join request")?;
 
-        Span::current().record("status", &resp.status().as_u16());
+        Span::current().record("status", resp.status().as_u16());
 
         info!(status = resp.status().as_u16(), "Got people response");
 

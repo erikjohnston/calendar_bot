@@ -77,7 +77,7 @@ pub async fn fetch_calendars(
     let body = resp.text().await?;
 
     info!(status = status.as_u16(), "Got result from CalDAV");
-    Span::current().record("status", &status.as_u16());
+    Span::current().record("status", status.as_u16());
 
     if !status.is_success() {
         bail!("Got {} result from CalDAV", status.as_u16());

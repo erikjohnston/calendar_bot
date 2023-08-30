@@ -114,7 +114,7 @@ async fn list_events_calendar_html(
         .templates
         .render(
             "events.html.j2",
-            &tera::Context::from_serialize(&context).map_err(ErrorInternalServerError)?,
+            &tera::Context::from_serialize(context).map_err(ErrorInternalServerError)?,
         )
         .map_err(ErrorInternalServerError)?;
 
@@ -161,7 +161,7 @@ async fn list_events_html(
         .templates
         .render(
             "events.html.j2",
-            &tera::Context::from_serialize(&context).map_err(ErrorInternalServerError)?,
+            &tera::Context::from_serialize(context).map_err(ErrorInternalServerError)?,
         )
         .map_err(ErrorInternalServerError)?;
 
@@ -208,7 +208,7 @@ async fn list_events_wit_reminders_html(
         .templates
         .render(
             "events.html.j2",
-            &tera::Context::from_serialize(&context).map_err(ErrorInternalServerError)?,
+            &tera::Context::from_serialize(context).map_err(ErrorInternalServerError)?,
         )
         .map_err(ErrorInternalServerError)?;
 
@@ -246,7 +246,7 @@ async fn list_calendars_html(
         .templates
         .render(
             "calendars.html.j2",
-            &tera::Context::from_serialize(&context).map_err(ErrorInternalServerError)?,
+            &tera::Context::from_serialize(context).map_err(ErrorInternalServerError)?,
         )
         .map_err(ErrorInternalServerError)?;
 
@@ -317,7 +317,7 @@ async fn new_reminder_html(
         .templates
         .render(
             "reminder.html.j2",
-            &tera::Context::from_serialize(&context).map_err(ErrorInternalServerError)?,
+            &tera::Context::from_serialize(context).map_err(ErrorInternalServerError)?,
         )
         .map_err(ErrorInternalServerError)?;
 
@@ -395,7 +395,7 @@ async fn get_reminder_html(
         .templates
         .render(
             "reminder.html.j2",
-            &tera::Context::from_serialize(&context).map_err(ErrorInternalServerError)?,
+            &tera::Context::from_serialize(context).map_err(ErrorInternalServerError)?,
         )
         .map_err(ErrorInternalServerError)?;
 
@@ -467,7 +467,7 @@ async fn get_event_html(
         .templates
         .render(
             "event.html.j2",
-            &tera::Context::from_serialize(&context).map_err(ErrorInternalServerError)?,
+            &tera::Context::from_serialize(context).map_err(ErrorInternalServerError)?,
         )
         .map_err(ErrorInternalServerError)?;
 
@@ -626,7 +626,7 @@ async fn get_calendar_html(
         .templates
         .render(
             "calendar.html.j2",
-            &tera::Context::from_serialize(&context).map_err(ErrorInternalServerError)?,
+            &tera::Context::from_serialize(context).map_err(ErrorInternalServerError)?,
         )
         .map_err(ErrorInternalServerError)?;
 
@@ -655,7 +655,7 @@ async fn new_calendar_html(
         .templates
         .render(
             "calendar.html.j2",
-            &tera::Context::from_serialize(&context).map_err(ErrorInternalServerError)?,
+            &tera::Context::from_serialize(context).map_err(ErrorInternalServerError)?,
         )
         .map_err(ErrorInternalServerError)?;
 
@@ -871,7 +871,7 @@ async fn login_get_html(app: Data<App>) -> Result<impl Responder, actix_web::Err
         .templates
         .render(
             "login.html.j2",
-            &tera::Context::from_serialize(&context).map_err(ErrorInternalServerError)?,
+            &tera::Context::from_serialize(context).map_err(ErrorInternalServerError)?,
         )
         .map_err(ErrorInternalServerError)?;
 
@@ -955,7 +955,7 @@ async fn change_password_html(
         .templates
         .render(
             "change_password.html.j2",
-            &tera::Context::from_serialize(&context).map_err(ErrorInternalServerError)?,
+            &tera::Context::from_serialize(context).map_err(ErrorInternalServerError)?,
         )
         .map_err(ErrorInternalServerError)?;
 
@@ -1042,7 +1042,7 @@ async fn change_matrix_id_html(
         .templates
         .render(
             "change_matrix_id.html.j2",
-            &tera::Context::from_serialize(&context).map_err(ErrorInternalServerError)?,
+            &tera::Context::from_serialize(context).map_err(ErrorInternalServerError)?,
         )
         .map_err(ErrorInternalServerError)?;
 
@@ -1098,7 +1098,7 @@ async fn list_google_accounts(
         .templates
         .render(
             "list_google_accounts.html.j2",
-            &tera::Context::from_serialize(&context).map_err(ErrorInternalServerError)?,
+            &tera::Context::from_serialize(context).map_err(ErrorInternalServerError)?,
         )
         .map_err(ErrorInternalServerError)?;
 
@@ -1142,7 +1142,7 @@ async fn google_calendars(
         .templates
         .render(
             "list_google_calendars.html.j2",
-            &tera::Context::from_serialize(&context).map_err(ErrorInternalServerError)?,
+            &tera::Context::from_serialize(context).map_err(ErrorInternalServerError)?,
         )
         .map_err(ErrorInternalServerError)?;
 
