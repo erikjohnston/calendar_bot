@@ -1,6 +1,6 @@
 FROM lukemathwalker/cargo-chef:latest AS chef
 
-WORKDIR app
+WORKDIR /app
 
 FROM chef AS planner
 COPY . .
