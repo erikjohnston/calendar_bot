@@ -306,9 +306,16 @@ impl App {
         )
         .await?;
 
+        let mut vcalendar_by_id = HashMap::new();
         let mut vevents_by_id = HashMap::new();
         for calendar in &calendars {
             vevents_by_id.extend(&calendar.events);
+            vcalendar_by_id.extend(
+                calendar
+                    .events
+                    .iter()
+                    .map(|(event_id, _)| (event_id, calendar)),
+            );
         }
 
         let (events, next_dates) = parse_calendars_to_events(db_calendar.calendar_id, &calendars)?;
@@ -344,6 +351,14 @@ impl App {
             // event. We're either expecting it to not appear in the calendar or
             // for it to be a recurring event that has an end date.
             if let Some(existing_event) = vevents_by_id.get(&previous_event.event_id) {
+                // Only port reminders if the existing event doesn't have any upcoming instances.
+                let calendar = vcalendar_by_id[&previous_event.event_id];
+                if let Ok(iter) = existing_event.recur_iter(calendar) {
+                    if iter.skip_while(|(d, _)| *d < Utc::now()).next().is_none() {
+                        continue;
+                    }
+                }
+
                 if let Some(recur) = &existing_event.base_event.recur {
                     match recur.end_condition {
                         EndCondition::Count(_) | EndCondition::Infinite => {
@@ -404,6 +419,11 @@ impl App {
                 // We only want to apply this logic for reminders that this user owns.
                 reminders.retain(|r| r.user_id == db_calendar.user_id);
 
+                // Skip if there are no reminders to port
+                if reminders.is_empty() {
+                    continue;
+                }
+
                 info!(
                     calendar_id = db_calendar.calendar_id,
                     prev_event = previous_event.event_id.deref(),
@@ -426,11 +446,6 @@ impl App {
 
         for reminder in new_reminders {
             self.database.add_reminder(&reminder).await?;
-
-            // We delete the old reminder so we don't port it again.
-            self.database
-                .delete_reminder_in_calendar(reminder.calendar_id, reminder.reminder_id)
-                .await?;
         }
 
         self.update_reminders().await?;
