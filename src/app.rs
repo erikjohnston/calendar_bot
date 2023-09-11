@@ -529,7 +529,7 @@ impl App {
 
             info!(count = reminders.len(), "Due reminders");
 
-            for reminder in reminders {
+            futures::future::join_all(reminders.into_iter().map(|reminder| async {
                 info!(event_id = reminder.event_id.deref(), "Sending reminder");
                 if let Err(err) = self.send_reminder(reminder).await {
                     capture_anyhow(&err);
@@ -538,33 +538,46 @@ impl App {
                         "Failed to send reminder"
                     );
                 }
-            }
+            }))
+            .await;
         }
     }
 
     /// Send the reminder to the appropriate room.
     #[instrument(skip(self), fields(status))]
     async fn send_reminder(&self, reminder: ReminderInstance) -> Result<(), Error> {
-        let join_url = format!(
-            "{}/_matrix/client/r0/join/{}",
-            self.config.matrix.homeserver_url,
-            encode(&reminder.room),
-        );
+        // Join the room, making sure we retry requests that fail with a 5xx error.
+        let mut retry_counter = 0;
+        let body = loop {
+            let join_url = format!(
+                "{}/_matrix/client/r0/join/{}",
+                self.config.matrix.homeserver_url,
+                encode(&reminder.room),
+            );
 
-        let resp = self
-            .http_client
-            .post(&join_url)
-            .bearer_auth(&self.config.matrix.access_token)
-            .json(&json!({}))
-            .send()
-            .await
-            .with_context(|| "Sending HTTP /join request")?;
+            let resp = self
+                .http_client
+                .post(&join_url)
+                .bearer_auth(&self.config.matrix.access_token)
+                .json(&json!({}))
+                .send()
+                .await
+                .with_context(|| "Sending HTTP /join request")?;
 
-        if !resp.status().is_success() {
-            bail!("Got non-2xx from /join response: {}", resp.status());
-        }
+            if !resp.status().is_success() {
+                warn!("Got non-2xx from /join response: {}", resp.status());
+                if resp.status().is_server_error() && retry_counter < 5 {
+                    retry_counter += 1;
+                    continue;
+                }
 
-        let body: MatrixJoinResponse = resp.json().await?;
+                bail!("Got non-2xx from /join response: {}", resp.status());
+            }
+
+            let body: MatrixJoinResponse = resp.json().await?;
+
+            break body;
+        };
 
         let markdown_template = reminder.template.as_deref().unwrap_or(DEFAULT_TEMPLATE);
 
