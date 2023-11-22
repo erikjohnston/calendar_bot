@@ -71,7 +71,8 @@ pub async fn fetch_calendars(
                 </c:comp-filter>
             </c:filter>
         </c:calendar-query>
-        "#
+        "#,
+            start = start.format("%Y%m%dT%H%M%SZ"),
         ))
         .send()
         .await?;
