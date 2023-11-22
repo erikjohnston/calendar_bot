@@ -50,6 +50,11 @@ pub async fn fetch_calendars(
         CalendarAuthentication::Bearer { access_token } => req = req.bearer_auth(access_token),
     }
 
+    // We fetch all calendar events from the previous N months and following, to
+    // try and mitigate a bug where the returned calendar doesn't include a base
+    // event for a recurring override.
+    let start = Utc::now() - Duration::days(30) * 6;
+
     let resp = req
         .body(format!(
             r#"
@@ -66,8 +71,7 @@ pub async fn fetch_calendars(
                 </c:comp-filter>
             </c:filter>
         </c:calendar-query>
-        "#,
-            start = Utc::now().format("%Y%m%dT%H%M%SZ")
+        "#
         ))
         .send()
         .await?;
