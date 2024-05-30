@@ -755,7 +755,7 @@ impl App {
                             error = ?err.deref() as &dyn StdError,
                             "Failed to refresh oauth2 token"
                         );
-                        sleep(std::time::Duration::from_secs(60)).await
+                        sleep(std::time::Duration::from_secs(1)).await
                     }
                 };
             }
