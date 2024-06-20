@@ -2,13 +2,11 @@
 <title>Calendar Reminders</title>
 <meta charset="utf-8">
 <style>
-    {
-        % include "base.css" %
-    }
+    {% include "base.css" %}
 </style>
 
 <script>
-    {% include "base.js" %}
+{% include "base.js" %}
 
 </script>
 
@@ -20,7 +18,7 @@
         <h1>Google Accounts</h1>
 
         <p>
-            <a href="/add_google_account">Add new account</a>
+        <a href="/add_google_account">Add new account</a>
         </p>
 
         {% for account in accounts %}
