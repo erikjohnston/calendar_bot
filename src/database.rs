@@ -380,7 +380,7 @@ impl Database {
         user_id: i64,
         name: String,
         url: String,
-        token_id: i64,
+        account_id: i64,
     ) -> Result<i64, Error> {
         let mut db_conn = self.db_pool.get().await?;
 
@@ -401,10 +401,10 @@ impl Database {
 
         txn.execute(
             r#"
-                INSERT INTO calendar_oauth2 (calendar_id, token_id)
+                INSERT INTO calendar_oauth2 (calendar_id, account_id)
                 VALUES ($1, $2)
             "#,
-            &[&calendar_id, &token_id],
+            &[&calendar_id, &account_id],
         )
         .await?;
 
@@ -1506,8 +1506,8 @@ impl Database {
         let rows = db_conn
             .query(
                 r#"
-                SELECT token_id
-                FROM oauth2_tokens
+                SELECT account_id
+                FROM oauth2_accounts
                 WHERE user_id = $1
             "#,
                 &[&user_id],
@@ -1517,8 +1517,8 @@ impl Database {
         let mut accounts = Vec::with_capacity(rows.len());
 
         for row in rows {
-            let token_id: i64 = row.try_get("token_id")?;
-            accounts.push(token_id);
+            let account_id: i64 = row.try_get("account_id")?;
+            accounts.push(account_id);
         }
 
         Ok(accounts)
@@ -1527,7 +1527,7 @@ impl Database {
     pub async fn get_oauth2_access_token(
         &self,
         user_id: i64,
-        token_id: i64,
+        account_id: i64,
     ) -> Result<OAuth2Result, Error> {
         let db_conn = self.db_pool.get().await?;
 
@@ -1535,10 +1535,13 @@ impl Database {
             .query_opt(
                 r#"
                 SELECT token_id, access_token, refresh_token, expiry
-                FROM oauth2_tokens
-                WHERE user_id = $1 AND token_id = $2
+                FROM oauth2_accounts AS ac
+                INNER JOIN oauth2_tokens USING (account_id)
+                WHERE ac.user_id = $1 AND account_id = $2
+                ORDER BY expiry DESC
+                LIMIT 1
             "#,
-                &[&user_id, &token_id],
+                &[&user_id, &account_id],
             )
             .await?;
 

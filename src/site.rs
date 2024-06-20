@@ -814,7 +814,7 @@ async fn add_new_calendar_html(
 pub struct UpdateCalendarOAuth2Form {
     pub google_id: String,
     pub name: String,
-    pub token_id: Option<i64>,
+    pub account_id: Option<i64>,
 }
 
 /// Add a new calendar page.
@@ -827,7 +827,7 @@ async fn add_oauth2_calendar_html(
     let UpdateCalendarOAuth2Form {
         google_id,
         name,
-        token_id,
+        account_id,
     } = data.into_inner();
 
     let url = format!(
@@ -835,11 +835,11 @@ async fn add_oauth2_calendar_html(
         encode(&google_id)
     );
 
-    let token_id = token_id.ok_or_else(|| ErrorBadRequest("Missing token ID"))?;
+    let account_id = account_id.ok_or_else(|| ErrorBadRequest("Missing account ID"))?;
 
     let calendar_id = app
         .database
-        .add_calendar_oauth2(*user, name, url, token_id)
+        .add_calendar_oauth2(*user, name, url, account_id)
         .await
         .map_err(ErrorInternalServerError)?;
 
@@ -1075,7 +1075,7 @@ async fn list_google_accounts(
     app: Data<App>,
     user: AuthedUser,
 ) -> Result<impl Responder, actix_web::Error> {
-    let token_ids = app
+    let account_ids = app
         .database
         .get_oauth2_accounts(user.0)
         .await
@@ -1088,8 +1088,8 @@ async fn list_google_accounts(
         .map_err(ErrorInternalServerError)?;
 
     let context = json!({
-        "accounts": token_ids.into_iter().map(|i| json!({
-            "token_id": i
+        "accounts": account_ids.into_iter().map(|i| json!({
+            "account_id": i
         })).collect::<Vec<_>>(),
         "email": email,
     });
@@ -1110,8 +1110,8 @@ async fn list_google_accounts(
 }
 
 #[derive(Debug, Clone, Deserialize)]
-struct TokenId {
-    token_id: i64,
+struct AccountId {
+    account_id: i64,
 }
 
 /// Get google calendars
@@ -1119,10 +1119,10 @@ struct TokenId {
 async fn google_calendars(
     app: Data<App>,
     user: AuthedUser,
-    query: Query<TokenId>,
+    query: Query<AccountId>,
 ) -> Result<impl Responder, actix_web::Error> {
-    let (token_id, calendars) = app
-        .get_google_calendars("/google_calendars", user.0, query.token_id)
+    let (account_id, calendars) = app
+        .get_google_calendars("/google_calendars", user.0, query.account_id)
         .await
         .map_err(ErrorInternalServerError)?;
 
@@ -1133,7 +1133,7 @@ async fn google_calendars(
         .map_err(ErrorInternalServerError)?;
 
     let context = json!({
-        "token_id": token_id,
+        "account_id": account_id,
         "calendars": calendars,
         "email": email,
     });
