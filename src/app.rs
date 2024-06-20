@@ -1116,6 +1116,9 @@ impl App {
             .add_scope(Scope::new(
                 "https://www.googleapis.com/auth/calendar".to_string(),
             ))
+            .add_scope(Scope::new(
+                "https://www.googleapis.com/auth/userinfo.email".to_string(),
+            ))
             // Set the PKCE code challenge.
             .set_pkce_challenge(pkce_challenge)
             .url();
