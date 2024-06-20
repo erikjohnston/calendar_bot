@@ -114,6 +114,7 @@ CREATE UNIQUE INDEX ON oauth2_sessions(crsf_token);
 CREATE TABLE oauth2_tokens (
     token_id BIGSERIAL PRIMARY KEY,
     user_id BIGINT NOT NULL REFERENCES users(user_id),
+    account_id BIGINT NOT NULL REFERENCES oauth2_accounts,
     access_token TEXT NOT NULL,
     refresh_token TEXT NOT NULL,
     expiry TIMESTAMP WITH TIME ZONE NOT NULL
@@ -124,7 +125,16 @@ CREATE INDEX ON oauth2_tokens(expiry);
 
 CREATE TABLE calendar_oauth2 (
     calendar_id BIGINT NOT NULL REFERENCES calendars(calendar_id),
-    token_id BIGINT NOT NULL REFERENCES oauth2_tokens(token_id)
+    account_id BIGINT NOT NULL REFERENCES oauth2_accounts
 );
 
 CREATE UNIQUE INDEX ON calendar_oauth2(calendar_id);
+
+
+CREATE TABLE oauth2_accounts (
+    account_id BIGSERIAL PRIMARY KEY,
+    user_id BIGINT NOT NULL REFERENCES users(user_id),
+    email TEXT NOT NULL
+);
+
+CREATE UNIQUE INDEX ON oauth2_accounts(user_id, email);

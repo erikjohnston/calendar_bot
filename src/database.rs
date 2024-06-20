@@ -3,7 +3,7 @@
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::ops::Deref;
 
-use anyhow::{Context, Error};
+use anyhow::{ensure, Context, Error};
 use chrono::{DateTime, Duration, FixedOffset, Utc};
 use postgres_types::{FromSql, ToSql};
 use serde::{Deserialize, Serialize};
@@ -1355,6 +1355,7 @@ impl Database {
     pub async fn add_google_oauth_token(
         &self,
         user_id: i64,
+        email: &str,
         access_token: &str,
         refresh_token: &str,
         expiry: DateTime<Utc>,
@@ -1363,16 +1364,29 @@ impl Database {
 
         let txn = db_conn.transaction().await?;
 
-        // We only want one oauth2 token per user provisioned at a time, so we
-        // delete any existing ones.
         txn.execute(
             r#"
-            INSERT INTO oauth2_tokens (user_id, access_token, refresh_token, expiry)
-            VALUES ($1, $2, $3, $4)
-            "#,
-            &[&user_id, &access_token, &refresh_token, &expiry],
+            INSERT INTO oauth2_accounts (user_id, email) VALUES ($1, $2)
+            ON CONFLICT (user_id, email) DO NOTHING
+        "#,
+            &[&user_id, &email],
         )
         .await?;
+
+        // We only want one oauth2 token per user provisioned at a time, so we
+        // delete any existing ones.
+        let row_count = txn
+            .execute(
+                r#"
+                INSERT INTO oauth2_tokens (user_id, account_id, access_token, refresh_token, expiry)
+                SELECT $1, account_id, $2, $3, $4 FROM oauth2_accounts
+                WHERE user_id = $1 AND email = $5;
+            "#,
+                &[&user_id, &access_token, &refresh_token, &expiry, &email],
+            )
+            .await?;
+
+        ensure!(row_count == 1, "Inserted {} rows, expected 1", row_count);
 
         txn.commit().await?;
 

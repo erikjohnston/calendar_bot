@@ -143,6 +143,11 @@ struct GoogleCalendarListResponse {
     items: Vec<GoogleCalendarListItem>,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+struct GoogleUserInfoResponse {
+    email: String,
+}
+
 impl Reminders {
     /// Get how long until the next reminder needs to be sent.
     fn get_time_to_next(&self) -> Option<Duration> {
@@ -428,7 +433,7 @@ impl App {
                 );
 
                 for mut reminder in reminders {
-                    reminder.event_id = new_event.event_id.clone();
+                    reminder.event_id.clone_from(&new_event.event_id);
 
                     new_reminders.push(reminder);
                 }
@@ -1166,9 +1171,23 @@ impl App {
         // We take five minutes off from the expiry time
         let expiry = Utc::now() + Duration::from_std(expires_in)? - Duration::minutes(10);
 
+        let response = self
+            .http_client
+            .get("https://www.googleapis.com/oauth2/v3/userinfo")
+            .bearer_auth(token_result.access_token().secret())
+            .send()
+            .await?;
+
+        if !response.status().is_success() {
+            bail!("Failed to talk to server.")
+        }
+
+        let body: GoogleUserInfoResponse = response.json().await?;
+
         self.database
             .add_google_oauth_token(
                 user_id,
+                &body.email,
                 token_result.access_token().secret(),
                 refresh_token.secret(),
                 expiry,
