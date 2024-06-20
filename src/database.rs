@@ -143,15 +143,17 @@ impl Database {
             .query(
                 &format!(
                     r#"
-                    SELECT
+                    SELECT DISTINCT ON (c.calendar_id)
                         c.user_id, c.calendar_id, c.name, c.url,
                         cp.user_name, cp.password,
                         at.access_token
                     FROM calendars AS c
                     LEFT JOIN calendar_passwords AS cp USING (calendar_id)
                     LEFT JOIN calendar_oauth2 AS co USING (calendar_id)
-                    LEFT JOIN oauth2_tokens AS at USING (token_id)
+                    LEFT JOIN oauth2_accounts AS ac USING (account_id)
+                    LEFT JOIN oauth2_tokens AS at USING (account_id)
                     {extra_sql}
+                    ORDER BY c.calendar_id, expiry DESC
                     "#,
                 ),
                 params,
@@ -1478,7 +1480,6 @@ impl Database {
                 r#"
                 SELECT token_id, refresh_token, expiry
                 FROM oauth2_tokens
-                INNER JOIN calendar_oauth2 USING (token_id)
                 WHERE expiry <= $1
                 ORDER BY expiry
             "#,
