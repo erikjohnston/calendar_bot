@@ -24,7 +24,7 @@
         {% for account in accounts %}
         <p>
             Account ID: {{ account.account_id }}<br />
-            <a href="/google_calendars?token_id={{ account.account_id }}">Calendars</a>
+            <a href="/google_calendars?account_id={{ account.account_id }}">Calendars</a>
         </p>
         {% endfor %}
 
