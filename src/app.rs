@@ -1080,7 +1080,7 @@ impl App {
 
         let existing_calendars = self
             .database
-            .get_oauth2_calendars(user_id, token_id)
+            .get_oauth2_calendars(user_id, account_id)
             .await?;
 
         let urls_have_added: BTreeSet<_> = existing_calendars.into_iter().map(|c| c.url).collect();
