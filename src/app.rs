@@ -1015,11 +1015,11 @@ impl App {
         &self,
         _path: &str,
         user_id: i64,
-        token_id: i64,
+        account_id: i64,
     ) -> Result<(i64, Vec<GoogleCalendarListItem>), Error> {
         let (token_id, access_token) = match self
             .database
-            .get_oauth2_access_token(user_id, token_id)
+            .get_oauth2_access_token(user_id, account_id)
             .await?
         {
             OAuth2Result::None => {
