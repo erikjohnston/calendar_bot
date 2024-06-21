@@ -1514,7 +1514,7 @@ impl Database {
                 SELECT DISTINCT ON (account_id) account_id, expiry < now()
                 FROM oauth2_accounts
                 INNER JOIN oauth2_tokens USING (account_id)
-                WHERE user_id = $1
+                WHERE oauth2_accounts.user_id = $1
                 ORDER BY account_id, expiry DESC
             "#,
                 &[&user_id],
