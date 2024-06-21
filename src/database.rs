@@ -120,6 +120,11 @@ pub enum OAuth2Result {
     AccessToken { access_token: String, token_id: i64 },
 }
 
+pub struct OAuth2Account {
+    pub account_id: i64,
+    pub expired: bool,
+}
+
 /// Allows talking to the database.
 #[derive(Debug, Clone)]
 pub struct Database {
@@ -1500,15 +1505,17 @@ impl Database {
         Ok(results)
     }
 
-    pub async fn get_oauth2_accounts(&self, user_id: i64) -> Result<Vec<i64>, Error> {
+    pub async fn get_oauth2_accounts(&self, user_id: i64) -> Result<Vec<OAuth2Account>, Error> {
         let db_conn = self.db_pool.get().await?;
 
         let rows = db_conn
             .query(
                 r#"
-                SELECT account_id
+                SELECT DISTINCT ON (account_id) account_id, expiry < now()
                 FROM oauth2_accounts
+                INNER JOIN oauth2_tokens
                 WHERE user_id = $1
+                ORDER BY account_id, expiry DESC
             "#,
                 &[&user_id],
             )
@@ -1517,8 +1524,12 @@ impl Database {
         let mut accounts = Vec::with_capacity(rows.len());
 
         for row in rows {
-            let account_id: i64 = row.try_get("account_id")?;
-            accounts.push(account_id);
+            let account_id: i64 = row.try_get(0)?;
+            let expired: bool = row.try_get(1)?;
+            accounts.push(OAuth2Account {
+                account_id,
+                expired,
+            });
         }
 
         Ok(accounts)

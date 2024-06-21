@@ -1075,7 +1075,7 @@ async fn list_google_accounts(
     app: Data<App>,
     user: AuthedUser,
 ) -> Result<impl Responder, actix_web::Error> {
-    let account_ids = app
+    let accounts = app
         .database
         .get_oauth2_accounts(user.0)
         .await
@@ -1088,8 +1088,9 @@ async fn list_google_accounts(
         .map_err(ErrorInternalServerError)?;
 
     let context = json!({
-        "accounts": account_ids.into_iter().map(|i| json!({
-            "account_id": i
+        "accounts": accounts.into_iter().map(|i| json!({
+            "account_id": i.account_id,
+            "expired": i.expired,
         })).collect::<Vec<_>>(),
         "email": email,
     });
