@@ -26,7 +26,7 @@
             Account ID: {{ account.account_id }}<br />
             {% if calendar.have_added_to_calbot %}
             <font color="red"><b>(Re-authentication required! <a href="/add_google_account">Click here</a>)</b></font><br />
-            {% else %}
+            {% endif %}
             <a href="/google_calendars?account_id={{ account.account_id }}">Calendars</a>
         </p>
         {% endfor %}
