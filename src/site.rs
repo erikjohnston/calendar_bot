@@ -1122,7 +1122,7 @@ async fn google_calendars(
     user: AuthedUser,
     query: Query<AccountId>,
 ) -> Result<impl Responder, actix_web::Error> {
-    let (account_id, calendars) = app
+    let (_, calendars) = app
         .get_google_calendars("/google_calendars", user.0, query.account_id)
         .await
         .map_err(ErrorInternalServerError)?;
@@ -1134,7 +1134,7 @@ async fn google_calendars(
         .map_err(ErrorInternalServerError)?;
 
     let context = json!({
-        "account_id": account_id,
+        "account_id": query.account_id,
         "calendars": calendars,
         "email": email,
     });
