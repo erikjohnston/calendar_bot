@@ -10,9 +10,7 @@ use actix_web::{
     HttpResponse, HttpServer, Responder,
 };
 use anyhow::Error;
-
 use itertools::Itertools;
-
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tracing_actix_web::TracingLogger;
@@ -1261,6 +1259,37 @@ async fn oauth2_callback(
     Ok(response)
 }
 
+pub fn add_services(cfg: &mut actix_web::web::ServiceConfig) {
+    cfg.service(index)
+        .service(list_events_html)
+        .service(list_events_wit_reminders_html)
+        .service(list_events_calendar_html)
+        .service(new_reminder_html)
+        .service(get_reminder_html)
+        .service(get_event_html)
+        .service(delete_reminder_html)
+        .service(upsert_reminder_html)
+        .service(list_calendars_html)
+        .service(new_calendar_html)
+        .service(add_new_calendar_html)
+        .service(add_oauth2_calendar_html)
+        .service(get_calendar_html)
+        .service(edit_calendar_html)
+        .service(delete_calendar_html)
+        .service(login_get_html)
+        .service(login_post_html)
+        .service(change_password_html)
+        .service(change_password_post_html)
+        .service(change_matrix_id_html)
+        .service(change_matrix_id_post_html)
+        .service(sso_redirect)
+        .service(sso_auth)
+        .service(oauth2_callback)
+        .service(google_calendars)
+        .service(add_google_account)
+        .service(list_google_accounts);
+}
+
 /// Run the HTTP server.
 pub async fn run_server(app: App) -> Result<(), Error> {
     let bind_addr = app
@@ -1276,34 +1305,7 @@ pub async fn run_server(app: App) -> Result<(), Error> {
             .app_data(Data::new(app.clone()))
             .wrap(TracingLogger::default())
             .wrap(Logger::default())
-            .service(index)
-            .service(list_events_html)
-            .service(list_events_wit_reminders_html)
-            .service(list_events_calendar_html)
-            .service(new_reminder_html)
-            .service(get_reminder_html)
-            .service(get_event_html)
-            .service(delete_reminder_html)
-            .service(upsert_reminder_html)
-            .service(list_calendars_html)
-            .service(new_calendar_html)
-            .service(add_new_calendar_html)
-            .service(add_oauth2_calendar_html)
-            .service(get_calendar_html)
-            .service(edit_calendar_html)
-            .service(delete_calendar_html)
-            .service(login_get_html)
-            .service(login_post_html)
-            .service(change_password_html)
-            .service(change_password_post_html)
-            .service(change_matrix_id_html)
-            .service(change_matrix_id_post_html)
-            .service(sso_redirect)
-            .service(sso_auth)
-            .service(oauth2_callback)
-            .service(google_calendars)
-            .service(add_google_account)
-            .service(list_google_accounts)
+            .configure(add_services)
     })
     .bind(&bind_addr)?
     .run()

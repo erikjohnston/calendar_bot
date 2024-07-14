@@ -544,6 +544,7 @@ dependencies = [
 name = "calendar_bot"
 version = "0.1.0"
 dependencies = [
+ "actix-http",
  "actix-web",
  "ammonia",
  "anyhow",
@@ -560,6 +561,7 @@ dependencies = [
  "itertools 0.11.0",
  "oauth2",
  "openidconnect",
+ "pgtemp",
  "postgres-types",
  "rand",
  "reqwest",
@@ -569,6 +571,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tera",
+ "test-log",
  "time",
  "tokio",
  "tokio-postgres",
@@ -1032,6 +1035,27 @@ name = "entities"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b5320ae4c3782150d900b79807611a59a99fc9a1d61d686faafc24b93fc8d7ca"
+
+[[package]]
+name = "env_filter"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a009aa4810eb158359dda09d0c87378e4bbb89b5a801f016885a4707ba24f7ea"
+dependencies = [
+ "log",
+]
+
+[[package]]
+name = "env_logger"
+version = "0.11.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "38b35839ba51819680ba087cd351788c9a3c476841207e0b8cee0b04722343b9"
+dependencies = [
+ "anstream",
+ "anstyle",
+ "env_filter",
+ "log",
+]
 
 [[package]]
 name = "equivalent"
@@ -2219,6 +2243,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "pgtemp"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dc39977b03503cfcf74ce2f8938d7b8340d1f8ef31a3f2a289b1c1abff8ace2c"
+dependencies = [
+ "libc",
+ "tempfile",
+ "tokio",
+ "url",
+]
+
+[[package]]
 name = "phf"
 version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3320,6 +3356,28 @@ checksum = "21bebf2b7c9e0a515f6e0f8c51dc0f8e4696391e6f1ff30379559f8365fb0df7"
 dependencies = [
  "rustix",
  "windows-sys 0.48.0",
+]
+
+[[package]]
+name = "test-log"
+version = "0.2.16"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3dffced63c2b5c7be278154d76b479f9f9920ed34e7574201407f0b14e2bbb93"
+dependencies = [
+ "env_logger",
+ "test-log-macros",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "test-log-macros"
+version = "0.2.16"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5999e24eaa32083191ba4e425deb75cdf25efefabe5aaccb7446dd0d4122a3f5"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.68",
 ]
 
 [[package]]

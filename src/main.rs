@@ -4,37 +4,14 @@
 //! allows scheduling reminders for them, which are sent to Matrix rooms.
 //! Updates to events are correctly handled by the associated reminders.
 
-use std::{fs, path::Path};
+use std::fs;
 
 use anyhow::{Context, Error};
-use bb8_postgres::tokio_postgres::NoTls;
-
-use clap::{Arg, ArgMatches, Command};
-
-use config::Config;
-
-mod app;
-mod auth;
-mod calendar;
-mod config;
-mod database;
-mod site;
-
-use app::App;
-use database::Database;
-use tera::Tera;
-use tokio::task::spawn_local;
+use calendar_bot::config::Config;
+use clap::{Arg, Command};
 use tracing_subscriber::filter::EnvFilter;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
-
-/// Default markdown template used for generating reminder events.
-const DEFAULT_TEMPLATE: &str = r#"
-**{{ summary }}** {{#if (gt minutes_before 0) }}starts in {{ duration }} {{/if}}{{#if location}}at {{ location }} {{/if}}{{#if attendees}} ─ {{ attendees }}{{/if}}{{#if description}}
-
-**Description:** {{ description }}
-{{/if}}
-"#;
 
 /// Entry point.
 #[actix_web::main]
@@ -83,41 +60,7 @@ async fn main() -> Result<(), Error> {
     };
 
     match matches.subcommand() {
-        Some(("create-user", submatches)) => create_user(config, submatches).await,
-        _ => start(config).await,
+        Some(("create-user", submatches)) => calendar_bot::create_user(config, submatches).await,
+        _ => calendar_bot::start(config).await,
     }
-}
-
-async fn create_database(config: &Config) -> Result<Database, Error> {
-    let manager = bb8_postgres::PostgresConnectionManager::new_from_stringlike(
-        &config.database.connection_string,
-        NoTls,
-    )?;
-    let db_pool = bb8::Pool::builder().max_size(15).build(manager).await?;
-    Ok(Database::from_pool(db_pool))
-}
-
-async fn create_user(config: Config, args: &ArgMatches) -> Result<(), Error> {
-    let database = create_database(&config).await?;
-    let username = args.get_one::<String>("username").unwrap();
-    let password = args.get_one::<String>("password").unwrap();
-    let user_id = database.upsert_account(username).await?;
-    database.change_password(user_id, password).await?;
-    Ok(())
-}
-
-async fn start(config: Config) -> Result<(), Error> {
-    let database = create_database(&config).await?;
-
-    let resource_directory = Path::new(config.app.resource_directory.as_deref().unwrap_or("res"));
-
-    let templates = Tera::new(&resource_directory.join("*").to_string_lossy())?;
-
-    let app = App::new(config, database, templates).await?;
-
-    spawn_local(app.clone().run());
-
-    site::run_server(app).await?;
-
-    Ok(())
 }

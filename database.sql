@@ -1,3 +1,11 @@
+CREATE TABLE users (
+    user_id BIGSERIAL PRIMARY KEY,
+    password_hash TEXT,
+    email TEXT NOT NULL
+);
+
+CREATE UNIQUE INDEX ON users(email);
+
 CREATE TABLE calendars (
     calendar_id BIGSERIAL PRIMARY KEY,
     user_id bigint NOT NULL REFERENCES users(user_id),
@@ -37,7 +45,7 @@ CREATE TABLE next_dates (
     calendar_id bigint NOT NULL REFERENCES calendars(calendar_id),
     event_id text NOT NULL,
     "timestamp" timestamp with time zone NOT NULL,
-    attendees "Attendee"[] NOT NULL
+    attendees "Attendee"[] NOT NULL,
     FOREIGN KEY (calendar_id, event_id) REFERENCES events (calendar_id, event_id)
 );
 
@@ -59,13 +67,6 @@ CREATE TABLE reminders (
 CREATE INDEX ON reminders(event_id);
 
 
-CREATE TABLE users (
-    user_id BIGSERIAL PRIMARY KEY,
-    password_hash TEXT,
-    email TEXT NOT NULL
-);
-
-CREATE UNIQUE INDEX ON users(email);
 
 
 CREATE TABLE email_to_matrix_id (
@@ -111,6 +112,14 @@ CREATE TABLE oauth2_sessions (
 CREATE UNIQUE INDEX ON oauth2_sessions(crsf_token);
 
 
+CREATE TABLE oauth2_accounts (
+    account_id BIGSERIAL PRIMARY KEY,
+    user_id BIGINT NOT NULL REFERENCES users(user_id),
+    email TEXT NOT NULL
+);
+
+CREATE UNIQUE INDEX ON oauth2_accounts(user_id, email);
+
 CREATE TABLE oauth2_tokens (
     token_id BIGSERIAL PRIMARY KEY,
     user_id BIGINT NOT NULL REFERENCES users(user_id),
@@ -129,12 +138,3 @@ CREATE TABLE calendar_oauth2 (
 );
 
 CREATE UNIQUE INDEX ON calendar_oauth2(calendar_id);
-
-
-CREATE TABLE oauth2_accounts (
-    account_id BIGSERIAL PRIMARY KEY,
-    user_id BIGINT NOT NULL REFERENCES users(user_id),
-    email TEXT NOT NULL
-);
-
-CREATE UNIQUE INDEX ON oauth2_accounts(user_id, email);

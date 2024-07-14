@@ -1,5 +1,7 @@
 //! Helper functions for parsing and dealing with ICS calendars.
 
+use std::{convert::TryInto, ops::Deref, str::FromStr};
+
 use anyhow::{anyhow, bail, Context, Error};
 use chrono::{Duration, Utc};
 use ics_parser::{
@@ -11,8 +13,6 @@ use reqwest::Method;
 use sentry::integrations::anyhow::capture_anyhow;
 use tracing::{error, info, instrument, Span};
 use url::Url;
-
-use std::{convert::TryInto, ops::Deref, str::FromStr};
 
 use crate::database::{Attendee, CalendarAuthentication, Event, EventInstance};
 
