@@ -8,14 +8,6 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use crate::{
-    calendar::{fetch_calendars, parse_calendars_to_events},
-    config::HiBobConfig,
-    database::{OAuth2Result, ReminderInstance},
-};
-use crate::{config::Config, database::Database};
-use crate::{database::Calendar, DEFAULT_TEMPLATE};
-
 use anyhow::{bail, Context, Error};
 use chrono::{DateTime, Duration, NaiveDate, Utc};
 use chrono_humanize::{Accuracy, HumanTime, Tense};
@@ -43,6 +35,14 @@ use tokio::{
 use tracing::{error, info, instrument, warn, Span};
 use url::Url;
 use urlencoding::encode;
+
+use crate::{
+    calendar::{fetch_calendars, parse_calendars_to_events},
+    config::HiBobConfig,
+    database::{OAuth2Result, ReminderInstance},
+};
+use crate::{config::Config, database::Database};
+use crate::{database::Calendar, DEFAULT_TEMPLATE};
 
 /// The type of the OpenID Connect client.
 type OpenIDClient = openidconnect::Client<
