@@ -1,3 +1,7 @@
+html {
+    height: 100%;
+}
+
 body {
     margin: 0px;
     padding: 0px;
@@ -46,10 +50,13 @@ body {
     flex-direction: column;
 }
 
-#sidebar ul {
+#sidebar #nav-links {
     padding: 30px 20px;
-    list-style: none;
     flex-grow: 1;
+}
+
+#sidebar ul {
+    list-style: none;
 }
 
 #sidebar li {
@@ -136,4 +143,5 @@ a {
 
 hr {
     border-color: #5e075e;
+    width: 80%;
 }
