@@ -1,8 +1,11 @@
+use actix_web::test::read_body;
 use anyhow::Error;
 
-mod common;
+pub mod common;
 
 use common::{create_actix_app, create_user_and_login};
+use scraper::Html;
+use tracing::{error, info};
 
 /// Test that starting the app works, and `/` responds with something
 #[test_log::test(actix_web::test)]
@@ -37,6 +40,15 @@ async fn test_endpoints() -> Result<(), Error> {
             .to_request();
         let resp = actix_web::test::call_service(&actix_app, req).await;
         assert!(resp.status().is_success(), "status: {}", resp.status());
+
+        // Check that body is valid html
+        let bytes = read_body(resp).await;
+        let document = Html::parse_document(std::str::from_utf8(&bytes)?);
+        for error in &document.errors {
+            error!(error = error.as_ref(), path, "HTML parsing error");
+        }
+        assert!(document.errors.is_empty());
+        info!(path, "Response is valid HTML")
     }
 
     Ok(())

@@ -46,4 +46,5 @@ debug = true
 
 [dev-dependencies]
 pgtemp = "0.3.0"
+scraper = "0.19.1"
 test-log = { version = "0.2.16", features = ["color", "trace"], default-features = false }

@@ -2,7 +2,7 @@ use actix_web::cookie::Cookie;
 use anyhow::{Context, Error};
 use serde_json::json;
 
-mod common;
+pub mod common;
 
 use common::create_actix_app;
 
