@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use actix_http::Request;
 use actix_web::{
     body::MessageBody,
@@ -5,9 +7,11 @@ use actix_web::{
     dev::{Service, ServiceResponse},
     middleware::Logger,
 };
-use anyhow::Error;
+use anyhow::{bail, Context, Error};
 use calendar_bot::config::Config;
 use pgtemp::PgTempDB;
+use scraper::Selector;
+use serde::Serialize;
 use tracing_actix_web::TracingLogger;
 
 pub async fn create_actix_app() -> Result<
@@ -57,4 +61,85 @@ pub async fn create_user_and_login(
     let cookie = Cookie::build("token", token).finish();
 
     Ok(cookie)
+}
+
+#[macro_export]
+macro_rules! assert_html {
+    ($document:expr) => {
+        for error in &$document.errors {
+            error!(error = error.as_ref(), "HTML parsing error");
+        }
+        assert!($document.errors.is_empty());
+    };
+}
+
+#[macro_export]
+macro_rules! assert_html_response {
+    ($resp:expr) => {
+        let bytes = read_body($resp).await;
+        let document = Html::parse_document(std::str::from_utf8(&bytes)?);
+        assert_html!(document);
+    };
+}
+
+#[derive(Debug, Clone)]
+pub struct Form {
+    pub path: String,
+    pub text_elements: Vec<String>,
+}
+
+impl Form {
+    pub fn from_html(document: scraper::Html) -> Result<Form, Error> {
+        let form_selector = Selector::parse("form").unwrap();
+        let input_selector = Selector::parse("input").unwrap();
+
+        let mut form_iter = document.select(&form_selector);
+        let form = form_iter.next().context("no form")?;
+        assert!(form_iter.next().is_none());
+
+        let mut text_elements = Vec::new();
+        let mut path = None;
+
+        for element in form.select(&input_selector) {
+            match element.value().attr("type").context("missing type")? {
+                "text" | "password" => {
+                    let name = element.value().attr("name").context("missing name")?;
+                    text_elements.push(name.to_string());
+                }
+                "submit" => {
+                    let formaction = element
+                        .value()
+                        .attr("formaction")
+                        .context("missing formaction")?;
+                    path = Some(formaction.to_string());
+                }
+                t => bail!("unrecognized type '{t}'"),
+            }
+        }
+
+        let Some(path) = path else {
+            bail!("Could not find submission path");
+        };
+
+        Ok(Form {
+            path,
+            text_elements,
+        })
+    }
+
+    pub fn to_request(&self, data: &impl Serialize) -> Result<actix_web::test::TestRequest, Error> {
+        let value = serde_json::to_value(data)?;
+        let map = value.as_object().context("get object")?;
+
+        let form_set: HashSet<_> = self.text_elements.iter().collect();
+        let data_set: HashSet<_> = map.keys().collect();
+
+        assert_eq!(form_set, data_set);
+
+        let req = actix_web::test::TestRequest::post()
+            .uri(&self.path)
+            .set_form(data);
+
+        Ok(req)
+    }
 }
