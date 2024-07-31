@@ -59,13 +59,8 @@ fn main() -> Result<(), Error> {
         None
     };
 
-    // Build a multi-threaded tokio runtime
-    let rt = tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()?;
-
     // Run the async main function on the runtime
-    rt.block_on(async_main(matches, config))
+    actix_web::rt::System::new().block_on(async_main(matches, config))
 }
 
 /// Async entry point
