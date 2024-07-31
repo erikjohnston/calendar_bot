@@ -14,8 +14,10 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 
 /// Entry point.
-#[actix_web::main]
-async fn main() -> Result<(), Error> {
+///
+/// We can't just use `tokio::main` here as sentry needs to be setup before
+/// spawning threads.
+fn main() -> Result<(), Error> {
     tracing_subscriber::registry()
         .with(EnvFilter::from_default_env())
         .with(tracing_subscriber::fmt::layer())
@@ -42,9 +44,7 @@ async fn main() -> Result<(), Error> {
     let config_file = matches.get_one::<String>("config").unwrap();
     let config_bytes = fs::read(config_file).with_context(|| "Reading config file")?;
     let config_str = String::from_utf8(config_bytes).with_context(|| "Parsing config file")?;
-
     let config: Config = toml::from_str(&config_str).with_context(|| "Parsing config file")?;
-
     let _guard = if let Some(sentry_config) = &config.sentry {
         let guard = sentry::init((
             &*sentry_config.dsn,
@@ -59,6 +59,17 @@ async fn main() -> Result<(), Error> {
         None
     };
 
+    // Build a multi-threaded tokio runtime
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?;
+
+    // Run the async main function on the runtime
+    rt.block_on(async_main(matches, config))
+}
+
+/// Async entry point
+async fn async_main(matches: clap::ArgMatches, config: Config) -> Result<(), Error> {
     match matches.subcommand() {
         Some(("create-user", submatches)) => calendar_bot::create_user(config, submatches).await,
         _ => calendar_bot::start(config).await,
