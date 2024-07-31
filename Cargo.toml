@@ -26,7 +26,7 @@ postgres-types = { version = "0.2.6", features = ["derive"] }
 rand = "0.8.5"
 reqwest = { version = "0.11.27", features = ["json"] }
 roxmltree = "0.18.1"
-sentry = { version = "0.31.8", features = ["anyhow"] }
+sentry = { version = "0.31.8", features = ["anyhow", "debug-images"] }
 sentry-tracing = "0.31.8"
 serde = { version = "1.0.203", features = ["derive"] }
 serde_json = "1.0.117"
@@ -48,4 +48,7 @@ debug = true
 httptest = "0.16.1"
 pgtemp = "0.3.0"
 scraper = "0.19.1"
-test-log = { version = "0.2.16", features = ["color", "trace"], default-features = false }
+test-log = { version = "0.2.16", features = [
+    "color",
+    "trace",
+], default-features = false }
