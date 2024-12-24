@@ -241,7 +241,7 @@ impl App {
                 ClientId::new(google_config.client_id.clone()),
                 google_config.client_secret.clone().map(ClientSecret::new),
                 AuthUrl::new(
-                    "https://accounts.google.com/o/oauth2/v2/auth?access_type=offline&prompt=consent".to_string(),
+                    "https://accounts.google.com/o/oauth2/v2/auth?access_type=offline".to_string(),
                 )?,
                 Some(TokenUrl::new(
                     "https://oauth2.googleapis.com/token".to_string(),
@@ -748,6 +748,8 @@ impl App {
                 }
             };
 
+            info!(num = to_refresh.len(), "Refreshing oauth2 tokens");
+
             for (token_id, refresh_token, expiry) in to_refresh {
                 match self
                     .refresh_oauth2_tokens_iter(token_id, refresh_token, expiry)
@@ -1117,6 +1119,9 @@ impl App {
         // Generate the full authorization URL.
         let (auth_url, csrf_token) = client
             .authorize_url(CsrfToken::new_random)
+            // This may be the first time we are asking for access to the google
+            // account, so we need to have a consent prompt.
+            .add_extra_param("prompt", "consent")
             // Set the desired scopes.
             .add_scope(Scope::new(
                 "https://www.googleapis.com/auth/calendar".to_string(),

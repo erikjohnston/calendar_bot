@@ -1483,12 +1483,11 @@ impl Database {
         let ret = db_conn
             .query(
                 r#"
-                SELECT token_id, refresh_token, expiry
+                SELECT DISTINCT ON (account_id) account_id, token_id, refresh_token, expiry
                 FROM oauth2_tokens
-                WHERE expiry <= $1
-                ORDER BY expiry
+                ORDER BY account_id, expiry DESC
             "#,
-                &[&Utc::now()],
+                &[],
             )
             .await?;
 
@@ -1499,7 +1498,9 @@ impl Database {
             let refresh_token = row.try_get("refresh_token")?;
             let expiry = row.try_get("expiry")?;
 
-            results.push((token_id, refresh_token, expiry))
+            if expiry < Utc::now() {
+                results.push((token_id, refresh_token, expiry));
+            }
         }
 
         Ok(results)
@@ -1562,7 +1563,7 @@ impl Database {
             let refresh_token: String = row.try_get("refresh_token")?;
             let expiry: DateTime<Utc> = row.try_get("expiry")?;
 
-            if expiry < Utc::now() {
+            if expiry > Utc::now() {
                 Ok(OAuth2Result::AccessToken {
                     access_token,
                     token_id,
