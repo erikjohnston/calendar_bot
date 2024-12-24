@@ -273,13 +273,17 @@ impl App {
 
     /// Start the background jobs, including sending reminders and updating calendars.
     pub async fn run(self) {
-        tokio::join!(
-            self.update_calendar_loop(),
-            self.reminder_loop(),
-            self.update_mappings_loop(),
-            self.hibob_loop(),
-            self.refresh_oauth2_tokens(),
+        tokio::select!(
+            _ = self.update_calendar_loop() => { error!("Update calendar loop exited!") },
+            _ = self.reminder_loop() => { error!("Reminder loop exited!") },
+            _ = self.update_mappings_loop() => { error!("Update mappings loop exited!") },
+            _ = self.hibob_loop() => { error!("Hibob loop exited!") },
+            _ = self.refresh_oauth2_tokens() => { error!("Refresh oauth2 token loop exited!") },
         );
+
+        // One of the infinite loops terminated, immediately shutdown (so that
+        // we can get restarted into a sane state). This should not happen.
+        std::process::exit(1);
     }
 
     /// Fetches and stores updates for the stored calendars.
